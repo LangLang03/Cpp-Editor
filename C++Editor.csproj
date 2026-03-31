@@ -20,8 +20,11 @@
 
   <ItemGroup>
     <!-- Exclude third-party build artifacts from this project's compile items. -->
+    <Compile Remove="msvc\**" />
     <Compile Remove="ThirdParty\**\obj\**\*.cs;ThirdParty\**\bin\**\*.cs" />
+    <EmbeddedResource Remove="msvc\**" />
     <EmbeddedResource Remove="ThirdParty\**\obj\**\*;ThirdParty\**\bin\**\*" />
+    <None Remove="msvc\**" />
     <None Remove="ThirdParty\**\obj\**\*;ThirdParty\**\bin\**\*" />
   </ItemGroup>
 
@@ -30,12 +33,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       <TargetPath>sweeteditor.dll</TargetPath>
-    </Content>
-
-    <Content Include="msvc\**\*">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <TargetPath>msvc\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
     </Content>
 
     <Content Include="editor\syntaxes\**\*.json">

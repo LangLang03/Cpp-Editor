@@ -61,9 +61,29 @@ public partial class MainEditorForm
         rtbRunOutput.ContextMenuStrip = CreateOutputContextMenu(rtbRunOutput);
         runOutputPage.Controls.Add(rtbRunOutput);
 
+        var runtimeLogPage = new TabPage
+        {
+            Name = "tabPageRuntimeLog",
+            Text = "\u8FD0\u884C\u65E5\u5FD7",
+            Padding = new Padding(3),
+            UseVisualStyleBackColor = true
+        };
+
+        rtbRuntimeLog = new RichTextBox
+        {
+            Name = "rtbRuntimeLog",
+            Dock = DockStyle.Fill,
+            BorderStyle = BorderStyle.None,
+            Font = new Font("Consolas", 10.2F, FontStyle.Regular, GraphicsUnit.Point, 0),
+            ReadOnly = true
+        };
+        rtbRuntimeLog.ContextMenuStrip = CreateOutputContextMenu(rtbRuntimeLog);
+        runtimeLogPage.Controls.Add(rtbRuntimeLog);
+
         bottomTabs.Controls.Add(buildOutputPage);
         bottomTabs.Controls.Add(compileErrorsPage);
         bottomTabs.Controls.Add(runOutputPage);
+        bottomTabs.Controls.Add(runtimeLogPage);
 
         return bottomTabs;
     }
@@ -129,7 +149,7 @@ public partial class MainEditorForm
             AllowUserToDeleteRows = false,
             AllowUserToResizeRows = false,
             BackgroundColor = SystemColors.Window,
-            MultiSelect = false,
+            MultiSelect = true,
             ReadOnly = true,
             RowHeadersVisible = false,
             SelectionMode = DataGridViewSelectionMode.FullRowSelect,
@@ -197,6 +217,199 @@ public partial class MainEditorForm
             columnErrorCode,
             columnDescription);
 
+        grid.ContextMenuStrip = CreateCompileErrorsContextMenu(grid);
+        grid.CellDoubleClick += DgvCompileErrors_CellDoubleClick;
+        grid.MouseDown += DgvCompileErrors_MouseDown;
+
         return grid;
+    }
+
+    private ContextMenuStrip CreateCompileErrorsContextMenu(DataGridView grid)
+    {
+        var menu = new ContextMenuStrip();
+
+        var menuCopyRows = new ToolStripMenuItem("复制选中行");
+        menuCopyRows.Click += (_, _) => CopySelectedCompileErrorRows();
+
+        var menuCopyCells = new ToolStripMenuItem("复制选中单元格");
+        menuCopyCells.Click += (_, _) => CopySelectedCompileErrorCells();
+
+        menu.Opening += (_, _) =>
+        {
+            menuCopyRows.Enabled = grid.SelectedRows.Count > 0;
+            menuCopyCells.Enabled = grid.GetCellCount(DataGridViewElementStates.Selected) > 0;
+        };
+
+        menu.Items.Add(menuCopyRows);
+        menu.Items.Add(menuCopyCells);
+        return menu;
+    }
+
+    private void CopySelectedCompileErrorRows()
+    {
+        if (dgvCompileErrors is null || dgvCompileErrors.SelectedRows.Count == 0)
+        {
+            return;
+        }
+
+        var rows = dgvCompileErrors.SelectedRows
+            .Cast<DataGridViewRow>()
+            .OrderBy(row => row.Index)
+            .ToList();
+
+        var lines = new List<string>();
+        foreach (var row in rows)
+        {
+            var values = row.Cells
+                .Cast<DataGridViewCell>()
+                .Select(cell => cell.Value?.ToString() ?? string.Empty);
+            lines.Add(string.Join('\t', values));
+        }
+
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(string.Join(Environment.NewLine, lines));
+        }
+        catch
+        {
+            // Ignore clipboard busy failures.
+        }
+    }
+
+    private void CopySelectedCompileErrorCells()
+    {
+        if (dgvCompileErrors is null)
+        {
+            return;
+        }
+
+        var selectedCells = dgvCompileErrors.SelectedCells
+            .Cast<DataGridViewCell>()
+            .OrderBy(cell => cell.RowIndex)
+            .ThenBy(cell => cell.ColumnIndex)
+            .ToList();
+
+        if (selectedCells.Count == 0)
+        {
+            return;
+        }
+
+        var grouped = selectedCells
+            .GroupBy(cell => cell.RowIndex)
+            .OrderBy(group => group.Key);
+
+        var lines = new List<string>();
+        foreach (var group in grouped)
+        {
+            var values = group
+                .OrderBy(cell => cell.ColumnIndex)
+                .Select(cell => cell.Value?.ToString() ?? string.Empty);
+            lines.Add(string.Join('\t', values));
+        }
+
+        try
+        {
+            Clipboard.SetText(string.Join(Environment.NewLine, lines));
+        }
+        catch
+        {
+            // Ignore clipboard busy failures.
+        }
+    }
+
+    private void DgvCompileErrors_MouseDown(object? sender, MouseEventArgs e)
+    {
+        if (dgvCompileErrors is null || e.Button != MouseButtons.Right)
+        {
+            return;
+        }
+
+        var hit = dgvCompileErrors.HitTest(e.X, e.Y);
+        if (hit.RowIndex < 0)
+        {
+            return;
+        }
+
+        var row = dgvCompileErrors.Rows[hit.RowIndex];
+        if (!row.Selected)
+        {
+            dgvCompileErrors.ClearSelection();
+            row.Selected = true;
+            if (hit.ColumnIndex >= 0 && hit.ColumnIndex < dgvCompileErrors.Columns.Count)
+            {
+                dgvCompileErrors.CurrentCell = row.Cells[hit.ColumnIndex];
+            }
+        }
+    }
+
+    private void DgvCompileErrors_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0 || dgvCompileErrors is null)
+        {
+            return;
+        }
+
+        var row = dgvCompileErrors.Rows[e.RowIndex];
+        var rawFilePath = row.Cells["columnFile"].Value?.ToString()?.Trim() ?? string.Empty;
+        var filePath = ResolveDiagnosticFilePath(rawFilePath);
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            return;
+        }
+
+        ShowFileInEditorPlaceholder(filePath);
+
+        var lineText = row.Cells["columnLine"].Value?.ToString();
+        var columnText = row.Cells["columnColumn"].Value?.ToString();
+        _ = int.TryParse(lineText, out var lineNumber);
+        _ = int.TryParse(columnText, out var columnNumber);
+
+        if (editorControlMain is not null && lineNumber > 0)
+        {
+            editorControlMain.GotoPosition(
+                Math.Max(0, lineNumber - 1),
+                Math.Max(0, columnNumber - 1));
+            editorControlMain.Focus();
+        }
+    }
+
+    private string ResolveDiagnosticFilePath(string rawPath)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            if (Path.IsPathRooted(rawPath))
+            {
+                return Path.GetFullPath(rawPath);
+            }
+
+            if (!string.IsNullOrWhiteSpace(lastBuiltSourcePath))
+            {
+                var sourceDirectory = Path.GetDirectoryName(lastBuiltSourcePath);
+                if (!string.IsNullOrWhiteSpace(sourceDirectory))
+                {
+                    var candidate = Path.GetFullPath(Path.Combine(sourceDirectory, rawPath));
+                    if (File.Exists(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+
+            return Path.GetFullPath(rawPath);
+        }
+        catch
+        {
+            return rawPath;
+        }
     }
 }

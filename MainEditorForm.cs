@@ -7,6 +7,7 @@ public partial class MainEditorForm : Form
         InitializeComponent();
         ApplyLightTheme();
         InitializeUserSettings();
+        RestoreLastSessionOnStartupIfNeeded();
         FormClosing += MainEditorForm_FormClosing;
     }
 
@@ -22,17 +23,19 @@ public partial class MainEditorForm : Form
             tabBottom,
             rtbBuildOutput,
             dgvCompileErrors,
-            rtbRunOutput);
+            rtbRunOutput,
+            rtbRuntimeLog);
     }
 
     private void MainEditorForm_FormClosing(object? sender, FormClosingEventArgs e)
     {
-        if (!EnsureCanCloseAllDocuments())
+        if (!EnsureCanCloseAllDocuments(closeTabs: false))
         {
             e.Cancel = true;
             return;
         }
 
         PersistUiSettingsFromCurrentState();
+        PersistSessionStateOnExit();
     }
 }

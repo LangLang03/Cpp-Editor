@@ -35,9 +35,15 @@ public partial class MainEditorForm
 
         public string SetupScriptPath { get; init; } = string.Empty;
 
+        public string WorkspaceRoot { get; init; } = string.Empty;
+
         public string WorkingDirectory { get; init; } = string.Empty;
 
         public string SourceFilePath { get; init; } = string.Empty;
+
+        public IReadOnlyList<string> SourceFilePaths { get; init; } = Array.Empty<string>();
+
+        public IReadOnlyList<string> CompileListPatterns { get; init; } = Array.Empty<string>();
 
         public string OutputExecutablePath { get; init; } = string.Empty;
 
@@ -125,12 +131,20 @@ public partial class MainEditorForm
         }
 
         ClearCompileDiagnostics();
+        ClearCompileOutput();
         SelectBottomTab(0);
 
         AppendBuildOutput($"开始编译: {context.SourceFilePath}");
         AppendBuildOutput($"使用编译器: {context.CompilerPath}");
         AppendBuildOutput($"使用环境脚本: {context.SetupScriptPath}");
+        AppendBuildOutput($"工作区根目录: {context.WorkspaceRoot}");
         AppendBuildOutput($"工作目录: {context.WorkingDirectory}");
+        if (context.CompileListPatterns.Count > 0)
+        {
+            AppendBuildOutput($"编译列表: {WorkspaceCompileListController.GetConfigPath(context.WorkspaceRoot)}");
+            AppendBuildOutput($"编译列表条目数: {context.CompileListPatterns.Count}，实际参与编译源文件数: {context.SourceFilePaths.Count}");
+        }
+
         AppendBuildOutput($"命令: {QuoteArgumentForDisplay(context.CompilerPath)} {BuildDisplayArguments(context.Arguments)}");
         AppendBuildOutput($"通过 cmd 执行: {BuildCmdDisplayText(context.CompilerPath, context.Arguments, context.SetupScriptPath)}");
 
@@ -233,8 +247,11 @@ public partial class MainEditorForm
         }
 
         var workingDirectory = ResolveBuildWorkingDirectory(sourceFilePath);
+        var workspaceRoot = ResolveWorkspaceRootForSource(sourceFilePath, workingDirectory);
+        var compileListConfig = WorkspaceCompileListController.Load(workspaceRoot);
+        var compileSources = ResolveBuildSourceFiles(sourceFilePath, workspaceRoot, compileListConfig.Include);
         var outputExecutablePath = ResolveOutputExecutablePath(sourceFilePath, workingDirectory, toolchainSettings);
-        var compilerArguments = BuildCompilerArguments(sourceFilePath, outputExecutablePath, toolchainSettings);
+        var compilerArguments = BuildCompilerArguments(compileSources, outputExecutablePath, toolchainSettings);
 
         if (!EditorToolchainSettingsController.TryResolveCompilerExecutable(toolchainSettings, out var compilerPath, out var compilerDetail))
         {
@@ -257,8 +274,11 @@ public partial class MainEditorForm
         {
             CompilerPath = compilerPath,
             SetupScriptPath = setupScriptPath,
+            WorkspaceRoot = workspaceRoot,
             WorkingDirectory = workingDirectory,
             SourceFilePath = sourceFilePath,
+            SourceFilePaths = compileSources,
+            CompileListPatterns = compileListConfig.Include,
             OutputExecutablePath = outputExecutablePath,
             Arguments = compilerArguments
         };
@@ -360,6 +380,116 @@ public partial class MainEditorForm
         return Environment.CurrentDirectory;
     }
 
+    private string ResolveWorkspaceRootForSource(string sourceFilePath, string fallbackWorkingDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(sourceFilePath))
+        {
+            return fallbackWorkingDirectory;
+        }
+
+        var normalizedSourcePath = Path.GetFullPath(sourceFilePath);
+        var bestRoot = string.Empty;
+
+        if (treeProject is not null)
+        {
+            foreach (TreeNode rootNode in treeProject.Nodes)
+            {
+                var nodeData = GetNodeData(rootNode);
+                if (nodeData?.Kind != ExplorerNodeKind.Directory || string.IsNullOrWhiteSpace(nodeData.FullPath))
+                {
+                    continue;
+                }
+
+                string rootPath;
+                try
+                {
+                    rootPath = Path.GetFullPath(nodeData.FullPath);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (!IsPathInsideOrEqual(normalizedSourcePath, rootPath))
+                {
+                    continue;
+                }
+
+                if (rootPath.Length > bestRoot.Length)
+                {
+                    bestRoot = rootPath;
+                }
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(bestRoot))
+        {
+            return bestRoot;
+        }
+
+        return fallbackWorkingDirectory;
+    }
+
+    private IReadOnlyList<string> ResolveBuildSourceFiles(
+        string primarySourceFilePath,
+        string workspaceRoot,
+        IReadOnlyList<string> compileListPatterns)
+    {
+        var fallback = new List<string> { primarySourceFilePath };
+        if (compileListPatterns is null || compileListPatterns.Count == 0)
+        {
+            return fallback;
+        }
+
+        var matchedFiles = WorkspaceCompileListController.ResolveFiles(workspaceRoot, compileListPatterns);
+        if (matchedFiles.Count == 0)
+        {
+            AppendBuildOutput("编译列表已配置，但未匹配到任何文件，已回退为当前文件编译。");
+            return fallback;
+        }
+
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var filePath in matchedFiles)
+        {
+            if (!IsCompilableSourceFile(filePath))
+            {
+                AppendBuildOutput($"跳过非源文件: {filePath}");
+                continue;
+            }
+
+            var normalizedPath = Path.GetFullPath(filePath);
+            if (seen.Add(normalizedPath))
+            {
+                result.Add(normalizedPath);
+            }
+        }
+
+        if (result.Count > 0)
+        {
+            return result;
+        }
+
+        AppendBuildOutput("编译列表匹配到的文件都不是可编译源文件，已回退为当前文件编译。");
+        return fallback;
+    }
+
+    private static bool IsPathInsideOrEqual(string targetPath, string directoryPath)
+    {
+        var normalizedTarget = Path.GetFullPath(targetPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedDirectory = Path.GetFullPath(directoryPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        if (string.Equals(normalizedTarget, normalizedDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var directoryPrefix = normalizedDirectory + Path.DirectorySeparatorChar;
+        return normalizedTarget.StartsWith(directoryPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string ResolveOutputExecutablePath(string sourceFilePath, string workingDirectory, ToolchainSettingsConfig settings)
     {
         var relativeOutputDirectory = string.IsNullOrWhiteSpace(settings.BuildOutputDirectory)
@@ -375,7 +505,7 @@ public partial class MainEditorForm
     }
 
     private static IReadOnlyList<string> BuildCompilerArguments(
-        string sourceFilePath,
+        IReadOnlyList<string> sourceFilePaths,
         string outputExecutablePath,
         ToolchainSettingsConfig settings)
     {
@@ -385,16 +515,16 @@ public partial class MainEditorForm
             arguments.Add("/nologo");
         }
 
-        if (string.Equals(Path.GetExtension(sourceFilePath), ".c", StringComparison.OrdinalIgnoreCase))
+        foreach (var sourceFilePath in sourceFilePaths)
         {
-            arguments.Add("/TC");
-        }
-        else
-        {
-            arguments.Add("/TP");
+            if (string.IsNullOrWhiteSpace(sourceFilePath))
+            {
+                continue;
+            }
+
+            arguments.Add(sourceFilePath);
         }
 
-        arguments.Add(sourceFilePath);
         arguments.Add($"/Fe:{outputExecutablePath}");
         return arguments;
     }
@@ -649,7 +779,7 @@ public partial class MainEditorForm
             return;
         }
 
-        AppendBuildOutput(normalized);
+        AppendCompileOutputLine(normalized);
 
         if (TryParseCompilerDiagnostic(normalized, out var diagnostic))
         {
@@ -795,6 +925,46 @@ public partial class MainEditorForm
         ClearRows();
     }
 
+    private void ClearCompileOutput()
+    {
+        if (rtbBuildOutput is null)
+        {
+            return;
+        }
+
+        void ClearText() => rtbBuildOutput.Clear();
+        if (rtbBuildOutput.InvokeRequired)
+        {
+            rtbBuildOutput.BeginInvoke(new Action(ClearText));
+            return;
+        }
+
+        ClearText();
+    }
+
+    private void AppendCompileOutputLine(string line)
+    {
+        if (rtbBuildOutput is null)
+        {
+            return;
+        }
+
+        void Append()
+        {
+            rtbBuildOutput.AppendText(line + Environment.NewLine);
+            rtbBuildOutput.SelectionStart = rtbBuildOutput.TextLength;
+            rtbBuildOutput.ScrollToCaret();
+        }
+
+        if (rtbBuildOutput.InvokeRequired)
+        {
+            rtbBuildOutput.BeginInvoke(new Action(Append));
+            return;
+        }
+
+        Append();
+    }
+
     private void ClearRunOutput()
     {
         if (rtbRunOutput is null)
@@ -814,7 +984,7 @@ public partial class MainEditorForm
 
     private void AppendRunStatus(string message)
     {
-        AppendRunOutputLine($"[{DateTime.Now:HH:mm:ss}] {message}");
+        AppendBuildOutput($"运行: {message}");
     }
 
     private void AppendRunOutputLine(string line)

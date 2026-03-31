@@ -21,13 +21,16 @@ internal sealed class UiSettings
 
     public int ExplorerWidth { get; set; } = 220;
 
+    public bool RestoreLastSessionOnStartup { get; set; } = true;
+
     internal UiSettings Clone()
     {
         return new UiSettings
         {
             ShowProjectTree = ShowProjectTree,
             ShowOutputPanel = ShowOutputPanel,
-            ExplorerWidth = ExplorerWidth
+            ExplorerWidth = ExplorerWidth,
+            RestoreLastSessionOnStartup = RestoreLastSessionOnStartup
         };
     }
 }

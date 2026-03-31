@@ -36,7 +36,8 @@ internal static class EditorThemeController
         TabControl tabBottom,
         RichTextBox rtbBuildOutput,
         DataGridView dgvCompileErrors,
-        RichTextBox rtbRunOutput)
+        RichTextBox rtbRunOutput,
+        RichTextBox rtbRuntimeLog)
     {
         form.BackColor = AppBackgroundColor;
         form.ForeColor = PrimaryTextColor;
@@ -55,6 +56,7 @@ internal static class EditorThemeController
 
         ApplyOutputTheme(rtbBuildOutput);
         ApplyOutputTheme(rtbRunOutput);
+        ApplyOutputTheme(rtbRuntimeLog);
         ApplyCompileErrorsTheme(dgvCompileErrors);
     }
 

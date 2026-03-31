@@ -17,6 +17,7 @@ public partial class MainEditorForm
     private RichTextBox rtbBuildOutput = null!;
     private DataGridView dgvCompileErrors = null!;
     private RichTextBox rtbRunOutput = null!;
+    private RichTextBox rtbRuntimeLog = null!;
 
     /// <summary>
     ///  Clean up any resources being used.

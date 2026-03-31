@@ -5,7 +5,7 @@ namespace C__Editor;
 
 internal static class EditorConfigurationController
 {
-    private const int CurrentVersion = 5;
+    private const int CurrentVersion = 7;
     private const string DefaultAutoPairFormat = "<>{}()";
     private static readonly object SyncRoot = new();
 
@@ -105,6 +105,42 @@ internal static class EditorConfigurationController
         }
     }
 
+    internal static ExplorerSettingsConfig GetExplorerSettings()
+    {
+        lock (SyncRoot)
+        {
+            return GetConfigClone().Explorer.Clone();
+        }
+    }
+
+    internal static void SaveExplorerSettings(ExplorerSettingsConfig settings)
+    {
+        lock (SyncRoot)
+        {
+            var config = GetConfigClone();
+            config.Explorer = settings?.Clone() ?? new ExplorerSettingsConfig();
+            SaveNormalized(config);
+        }
+    }
+
+    internal static CppTemplateSettingsConfig GetCppTemplateSettings()
+    {
+        lock (SyncRoot)
+        {
+            return GetConfigClone().CppTemplates.Clone();
+        }
+    }
+
+    internal static void SaveCppTemplateSettings(CppTemplateSettingsConfig settings)
+    {
+        lock (SyncRoot)
+        {
+            var config = GetConfigClone();
+            config.CppTemplates = settings?.Clone() ?? CppTemplateSettingsConfig.CreateDefault();
+            SaveNormalized(config);
+        }
+    }
+
     private static EditorAppConfig GetConfigClone()
     {
         if (cachedConfig is null)
@@ -148,7 +184,9 @@ internal static class EditorConfigurationController
             Ui = uiSettings,
             AutoPairs = autoPairs,
             Shortcuts = shortcuts,
-            Toolchain = ToolchainSettingsConfig.CreateDefault()
+            Toolchain = ToolchainSettingsConfig.CreateDefault(),
+            Explorer = new ExplorerSettingsConfig(),
+            CppTemplates = CppTemplateSettingsConfig.CreateDefault()
         };
     }
 
@@ -176,7 +214,8 @@ internal static class EditorConfigurationController
         {
             ShowProjectTree = ui.ShowProjectTree,
             ShowOutputPanel = ui.ShowOutputPanel,
-            ExplorerWidth = Math.Clamp(ui.ExplorerWidth, 180, 420)
+            ExplorerWidth = Math.Clamp(ui.ExplorerWidth, 180, 420),
+            RestoreLastSessionOnStartup = ui.RestoreLastSessionOnStartup
         };
         if (!UiEquals(ui, normalizedUi))
         {
@@ -224,6 +263,22 @@ internal static class EditorConfigurationController
         }
 
         normalized.Toolchain = normalizedToolchain;
+
+        var normalizedExplorer = NormalizeExplorerSection(normalized.Explorer);
+        if (!ExplorerSectionEquals(normalized.Explorer, normalizedExplorer))
+        {
+            shouldSave = true;
+        }
+
+        normalized.Explorer = normalizedExplorer;
+
+        var normalizedCppTemplates = NormalizeCppTemplateSection(normalized.CppTemplates);
+        if (!CppTemplateSectionEquals(normalized.CppTemplates, normalizedCppTemplates))
+        {
+            shouldSave = true;
+        }
+
+        normalized.CppTemplates = normalizedCppTemplates;
 
         return (normalized, shouldSave);
     }
@@ -334,7 +389,8 @@ internal static class EditorConfigurationController
     {
         return left.ShowProjectTree == right.ShowProjectTree &&
                left.ShowOutputPanel == right.ShowOutputPanel &&
-               left.ExplorerWidth == right.ExplorerWidth;
+               left.ExplorerWidth == right.ExplorerWidth &&
+               left.RestoreLastSessionOnStartup == right.RestoreLastSessionOnStartup;
     }
 
     private static bool ShortcutSectionEquals(ShortcutSettingsSection? left, ShortcutSettingsSection right)
@@ -423,6 +479,59 @@ internal static class EditorConfigurationController
                string.Equals(left.BuildOutputDirectory, right.BuildOutputDirectory, StringComparison.Ordinal);
     }
 
+    private static ExplorerSettingsConfig NormalizeExplorerSection(ExplorerSettingsConfig? section)
+    {
+        var input = section ?? new ExplorerSettingsConfig();
+        return new ExplorerSettingsConfig
+        {
+            RenameSelectNameOnly = input.RenameSelectNameOnly
+        };
+    }
+
+    private static bool ExplorerSectionEquals(ExplorerSettingsConfig? left, ExplorerSettingsConfig right)
+    {
+        if (left is null)
+        {
+            return false;
+        }
+
+        return left.RenameSelectNameOnly == right.RenameSelectNameOnly;
+    }
+
+    private static CppTemplateSettingsConfig NormalizeCppTemplateSection(CppTemplateSettingsConfig? section)
+    {
+        var input = section ?? CppTemplateSettingsConfig.CreateDefault();
+        return new CppTemplateSettingsConfig
+        {
+            CppSourceTemplate = NormalizeTemplate(input.CppSourceTemplate, CppTemplateSettingsConfig.DefaultCppSourceTemplate),
+            CppHeaderTemplate = NormalizeTemplate(input.CppHeaderTemplate, CppTemplateSettingsConfig.DefaultCppHeaderTemplate),
+            CSourceTemplate = NormalizeTemplate(input.CSourceTemplate, CppTemplateSettingsConfig.DefaultCSourceTemplate),
+            CHeaderTemplate = NormalizeTemplate(input.CHeaderTemplate, CppTemplateSettingsConfig.DefaultCHeaderTemplate),
+            OtherFileTemplate = NormalizeTemplate(input.OtherFileTemplate, string.Empty)
+        };
+    }
+
+    private static string NormalizeTemplate(string? template, string fallback)
+    {
+        return template is null
+            ? fallback
+            : template.Replace("\r\n", "\n").Replace('\r', '\n');
+    }
+
+    private static bool CppTemplateSectionEquals(CppTemplateSettingsConfig? left, CppTemplateSettingsConfig right)
+    {
+        if (left is null)
+        {
+            return false;
+        }
+
+        return string.Equals(left.CppSourceTemplate, right.CppSourceTemplate, StringComparison.Ordinal) &&
+               string.Equals(left.CppHeaderTemplate, right.CppHeaderTemplate, StringComparison.Ordinal) &&
+               string.Equals(left.CSourceTemplate, right.CSourceTemplate, StringComparison.Ordinal) &&
+               string.Equals(left.CHeaderTemplate, right.CHeaderTemplate, StringComparison.Ordinal) &&
+               string.Equals(left.OtherFileTemplate, right.OtherFileTemplate, StringComparison.Ordinal);
+    }
+
     private static bool TryReadConfig(string path, out EditorAppConfig? config)
     {
         config = TryReadConfig<EditorAppConfig>(path);
@@ -507,7 +616,7 @@ internal static class EditorConfigurationController
 
 internal sealed class EditorAppConfig
 {
-    public int ConfigVersion { get; set; } = 5;
+    public int ConfigVersion { get; set; } = 7;
 
     public UiSettings Ui { get; set; } = new();
 
@@ -517,6 +626,10 @@ internal sealed class EditorAppConfig
 
     public ToolchainSettingsConfig Toolchain { get; set; } = ToolchainSettingsConfig.CreateDefault();
 
+    public ExplorerSettingsConfig Explorer { get; set; } = new();
+
+    public CppTemplateSettingsConfig CppTemplates { get; set; } = CppTemplateSettingsConfig.CreateDefault();
+
     internal EditorAppConfig Clone()
     {
         return new EditorAppConfig
@@ -525,7 +638,9 @@ internal sealed class EditorAppConfig
             Ui = Ui?.Clone() ?? new UiSettings(),
             AutoPairs = AutoPairs?.Clone() ?? new AutoPairSettingsConfig(),
             Shortcuts = Shortcuts?.Clone() ?? new ShortcutSettingsSection(),
-            Toolchain = Toolchain?.Clone() ?? ToolchainSettingsConfig.CreateDefault()
+            Toolchain = Toolchain?.Clone() ?? ToolchainSettingsConfig.CreateDefault(),
+            Explorer = Explorer?.Clone() ?? new ExplorerSettingsConfig(),
+            CppTemplates = CppTemplates?.Clone() ?? CppTemplateSettingsConfig.CreateDefault()
         };
     }
 }
@@ -624,6 +739,68 @@ internal sealed class ToolchainSettingsConfig
             GdbPath = GdbPath,
             CompilerArguments = CompilerArguments,
             BuildOutputDirectory = BuildOutputDirectory
+        };
+    }
+}
+
+internal sealed class ExplorerSettingsConfig
+{
+    public bool RenameSelectNameOnly { get; set; } = true;
+
+    internal ExplorerSettingsConfig Clone()
+    {
+        return new ExplorerSettingsConfig
+        {
+            RenameSelectNameOnly = RenameSelectNameOnly
+        };
+    }
+}
+
+internal sealed class CppTemplateSettingsConfig
+{
+    internal const string DefaultCppSourceTemplate =
+        "#include <iostream>\n\nint main()\n{\n    std::cout << \"Hello, World!\" << std::endl;\n    return 0;\n}\n";
+
+    internal const string DefaultCppHeaderTemplate =
+        "#pragma once\n\n";
+
+    internal const string DefaultCSourceTemplate =
+        "#include <stdio.h>\n\nint main(void)\n{\n    printf(\"Hello, World!\\n\");\n    return 0;\n}\n";
+
+    internal const string DefaultCHeaderTemplate =
+        "#pragma once\n\n";
+
+    public string CppSourceTemplate { get; set; } = DefaultCppSourceTemplate;
+
+    public string CppHeaderTemplate { get; set; } = DefaultCppHeaderTemplate;
+
+    public string CSourceTemplate { get; set; } = DefaultCSourceTemplate;
+
+    public string CHeaderTemplate { get; set; } = DefaultCHeaderTemplate;
+
+    public string OtherFileTemplate { get; set; } = string.Empty;
+
+    internal static CppTemplateSettingsConfig CreateDefault()
+    {
+        return new CppTemplateSettingsConfig
+        {
+            CppSourceTemplate = DefaultCppSourceTemplate,
+            CppHeaderTemplate = DefaultCppHeaderTemplate,
+            CSourceTemplate = DefaultCSourceTemplate,
+            CHeaderTemplate = DefaultCHeaderTemplate,
+            OtherFileTemplate = string.Empty
+        };
+    }
+
+    internal CppTemplateSettingsConfig Clone()
+    {
+        return new CppTemplateSettingsConfig
+        {
+            CppSourceTemplate = CppSourceTemplate,
+            CppHeaderTemplate = CppHeaderTemplate,
+            CSourceTemplate = CSourceTemplate,
+            CHeaderTemplate = CHeaderTemplate,
+            OtherFileTemplate = OtherFileTemplate
         };
     }
 }

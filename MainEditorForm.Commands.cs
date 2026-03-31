@@ -531,20 +531,20 @@ public partial class MainEditorForm
 
     private void AppendBuildOutput(string message)
     {
-        if (rtbBuildOutput is null)
+        if (rtbRuntimeLog is null)
         {
             return;
         }
 
-        if (rtbBuildOutput.InvokeRequired)
+        if (rtbRuntimeLog.InvokeRequired)
         {
-            rtbBuildOutput.BeginInvoke(new Action(() => AppendBuildOutput(message)));
+            rtbRuntimeLog.BeginInvoke(new Action(() => AppendBuildOutput(message)));
             return;
         }
 
-        rtbBuildOutput.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\r\n");
-        rtbBuildOutput.SelectionStart = rtbBuildOutput.TextLength;
-        rtbBuildOutput.ScrollToCaret();
+        rtbRuntimeLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\r\n");
+        rtbRuntimeLog.SelectionStart = rtbRuntimeLog.TextLength;
+        rtbRuntimeLog.ScrollToCaret();
     }
 
     private void ShowNotImplemented(string featureName)

@@ -4,12 +4,16 @@ public partial class MainEditorForm
 {
     private UiSettings uiSettings = new();
     private ToolchainSettingsConfig toolchainSettings = ToolchainSettingsConfig.CreateDefault();
+    private ExplorerSettingsConfig explorerSettings = new();
+    private CppTemplateSettingsConfig cppTemplateSettings = CppTemplateSettingsConfig.CreateDefault();
     private bool suppressViewMenuStateSync;
 
     private void InitializeUserSettings()
     {
         uiSettings = EditorUiSettingsController.Get();
         toolchainSettings = EditorToolchainSettingsController.Get();
+        explorerSettings = EditorExplorerSettingsController.Get();
+        cppTemplateSettings = EditorCppTemplateSettingsController.Get();
         ReloadShortcutBindings();
         ApplyUiSettings(uiSettings);
         UpdateBuildRunMenuState();
@@ -65,13 +69,22 @@ public partial class MainEditorForm
     {
         var currentPairFormat = EditorAutoPairController.GetPairFormat();
         var currentShortcutBindings = GetShortcutBindingsForEditing();
-        using var dialog = new EditorSettingsForm(currentPairFormat, uiSettings, currentShortcutBindings);
+        using var dialog = new EditorSettingsForm(
+            currentPairFormat,
+            uiSettings,
+            explorerSettings,
+            cppTemplateSettings,
+            currentShortcutBindings);
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
             return;
         }
 
         EditorAutoPairController.SetPairFormat(dialog.AutoPairFormat);
+        explorerSettings = dialog.ResultExplorerSettings;
+        cppTemplateSettings = dialog.ResultCppTemplateSettings;
+        EditorExplorerSettingsController.Save(explorerSettings);
+        EditorCppTemplateSettingsController.Save(cppTemplateSettings);
         SaveShortcutBindingsFromSettings(dialog.ResultShortcutBindings);
         ApplyUiSettings(dialog.ResultUiSettings);
         PersistUiSettingsFromCurrentState();
@@ -82,7 +95,10 @@ public partial class MainEditorForm
 
     private void OpenCompilerSettingsDialog()
     {
-        using var dialog = new ToolchainSettingsForm(toolchainSettings);
+        var workspaceRoot = ResolvePreferredWorkspaceRoot();
+        var compileListConfig = WorkspaceCompileListController.Load(workspaceRoot);
+
+        using var dialog = new ToolchainSettingsForm(toolchainSettings, workspaceRoot, compileListConfig.Include);
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
             return;
@@ -90,6 +106,44 @@ public partial class MainEditorForm
 
         toolchainSettings = dialog.ResultSettings;
         EditorToolchainSettingsController.Save(toolchainSettings);
+        WorkspaceCompileListController.Save(workspaceRoot, dialog.ResultCompileListPatterns);
         AppendBuildOutput("编译器设置已保存。");
+        AppendBuildOutput($"编译列表已保存: {WorkspaceCompileListController.GetConfigPath(workspaceRoot)}");
+    }
+
+    private string ResolvePreferredWorkspaceRoot()
+    {
+        var selectedState = GetSelectedDocumentState();
+        if (selectedState is not null && !string.IsNullOrWhiteSpace(selectedState.FilePath))
+        {
+            var sourcePath = Path.GetFullPath(selectedState.FilePath);
+            var sourceDirectory = Path.GetDirectoryName(sourcePath);
+            if (!string.IsNullOrWhiteSpace(sourceDirectory))
+            {
+                return ResolveWorkspaceRootForSource(sourcePath, sourceDirectory);
+            }
+        }
+
+        var selectedDirectory = GetTargetDirectory(treeProject?.SelectedNode);
+        if (!string.IsNullOrWhiteSpace(selectedDirectory))
+        {
+            return Path.GetFullPath(selectedDirectory);
+        }
+
+        if (treeProject is not null)
+        {
+            foreach (TreeNode rootNode in treeProject.Nodes)
+            {
+                var nodeData = GetNodeData(rootNode);
+                if (nodeData?.Kind == ExplorerNodeKind.Directory &&
+                    !string.IsNullOrWhiteSpace(nodeData.FullPath) &&
+                    Directory.Exists(nodeData.FullPath))
+                {
+                    return Path.GetFullPath(nodeData.FullPath);
+                }
+            }
+        }
+
+        return Environment.CurrentDirectory;
     }
 }

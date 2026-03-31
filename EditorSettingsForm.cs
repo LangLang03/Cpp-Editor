@@ -11,21 +11,35 @@ internal sealed class EditorSettingsForm : Form
     private readonly TreeView treeSettings;
     private readonly Panel panelHost;
     private readonly Panel pageAutoPairs;
+    private readonly Panel pageCppTemplates;
     private readonly Panel pageLayout;
+    private readonly Panel pageExplorer;
     private readonly Panel pageShortcuts;
     private readonly DataGridView dgvShortcuts;
     private readonly List<ShortcutBindingItem> shortcutBindings;
 
     private TextBox textAutoPairs = null!;
+    private TextBox txtTemplateCpp = null!;
+    private TextBox txtTemplateHpp = null!;
+    private TextBox txtTemplateC = null!;
+    private TextBox txtTemplateH = null!;
+    private TextBox txtTemplateOther = null!;
     private CheckBox chkShowProjectTree = null!;
     private CheckBox chkShowOutputPanel = null!;
+    private CheckBox chkRestoreLastSession = null!;
     private NumericUpDown numExplorerWidth = null!;
+    private CheckBox chkRenameSelectNameOnly = null!;
 
     private TextBox txtShortcutRecorder = null!;
     private Label lblRecorderHint = null!;
     private Label lblConflictStatus = null!;
 
-    internal EditorSettingsForm(string autoPairFormat, UiSettings uiSettings, IReadOnlyList<ShortcutBindingItem> shortcutItems)
+    internal EditorSettingsForm(
+        string autoPairFormat,
+        UiSettings uiSettings,
+        ExplorerSettingsConfig explorerSettings,
+        CppTemplateSettingsConfig cppTemplateSettings,
+        IReadOnlyList<ShortcutBindingItem> shortcutItems)
     {
         shortcutBindings = shortcutItems.Select(item => item.Clone()).ToList();
 
@@ -52,9 +66,11 @@ internal sealed class EditorSettingsForm : Form
 
         var rootEditor = new TreeNode("编辑器");
         rootEditor.Nodes.Add(new TreeNode("自动补全") { Name = "auto_pairs" });
+        rootEditor.Nodes.Add(new TreeNode("C++") { Name = "cpp_templates" });
         rootEditor.Nodes.Add(new TreeNode("快捷键") { Name = "shortcuts" });
         var rootWorkspace = new TreeNode("工作区");
         rootWorkspace.Nodes.Add(new TreeNode("布局") { Name = "layout" });
+        rootWorkspace.Nodes.Add(new TreeNode("资源管理器") { Name = "explorer" });
         treeSettings.Nodes.Add(rootEditor);
         treeSettings.Nodes.Add(rootWorkspace);
         treeSettings.ExpandAll();
@@ -78,14 +94,20 @@ internal sealed class EditorSettingsForm : Form
         rightContainer.Controls.Add(panelHost, 0, 0);
 
         pageAutoPairs = new Panel { Dock = DockStyle.Fill };
+        pageCppTemplates = new Panel { Dock = DockStyle.Fill };
         pageLayout = new Panel { Dock = DockStyle.Fill };
+        pageExplorer = new Panel { Dock = DockStyle.Fill };
         pageShortcuts = new Panel { Dock = DockStyle.Fill };
         panelHost.Controls.Add(pageAutoPairs);
+        panelHost.Controls.Add(pageCppTemplates);
         panelHost.Controls.Add(pageLayout);
+        panelHost.Controls.Add(pageExplorer);
         panelHost.Controls.Add(pageShortcuts);
 
         BuildAutoPairPage(pageAutoPairs, autoPairFormat);
+        BuildCppTemplatePage(pageCppTemplates, cppTemplateSettings);
         BuildLayoutPage(pageLayout, uiSettings);
+        BuildExplorerPage(pageExplorer, explorerSettings);
         dgvShortcuts = BuildShortcutPage(pageShortcuts);
 
         var bottomButtons = new FlowLayoutPanel
@@ -127,7 +149,22 @@ internal sealed class EditorSettingsForm : Form
     {
         ShowProjectTree = chkShowProjectTree.Checked,
         ShowOutputPanel = chkShowOutputPanel.Checked,
-        ExplorerWidth = (int)numExplorerWidth.Value
+        ExplorerWidth = (int)numExplorerWidth.Value,
+        RestoreLastSessionOnStartup = chkRestoreLastSession.Checked
+    };
+
+    internal ExplorerSettingsConfig ResultExplorerSettings => new()
+    {
+        RenameSelectNameOnly = chkRenameSelectNameOnly.Checked
+    };
+
+    internal CppTemplateSettingsConfig ResultCppTemplateSettings => new()
+    {
+        CppSourceTemplate = NormalizeTemplateText(txtTemplateCpp.Text, CppTemplateSettingsConfig.DefaultCppSourceTemplate),
+        CppHeaderTemplate = NormalizeTemplateText(txtTemplateHpp.Text, CppTemplateSettingsConfig.DefaultCppHeaderTemplate),
+        CSourceTemplate = NormalizeTemplateText(txtTemplateC.Text, CppTemplateSettingsConfig.DefaultCSourceTemplate),
+        CHeaderTemplate = NormalizeTemplateText(txtTemplateH.Text, CppTemplateSettingsConfig.DefaultCHeaderTemplate),
+        OtherFileTemplate = NormalizeTemplateText(txtTemplateOther.Text, string.Empty)
     };
 
     internal IReadOnlyList<ShortcutBindingItem> ResultShortcutBindings => shortcutBindings.Select(item => item.Clone()).ToList();
@@ -170,6 +207,86 @@ internal sealed class EditorSettingsForm : Form
         host.Controls.Add(hint);
     }
 
+    private void BuildCppTemplatePage(Control host, CppTemplateSettingsConfig cppTemplateSettings)
+    {
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        host.Controls.Add(layout);
+
+        var title = new Label
+        {
+            Text = "C++ 文件模板",
+            Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold),
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 8)
+        };
+        layout.Controls.Add(title, 0, 0);
+
+        var split = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Horizontal,
+            SplitterDistance = 260
+        };
+        layout.Controls.Add(split, 0, 1);
+
+        var topGrid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 2
+        };
+        topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        topGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        topGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+        topGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+
+        txtTemplateCpp = CreateTemplateEditor(topGrid, 0, 0, ".cpp 模板", cppTemplateSettings.CppSourceTemplate);
+        txtTemplateHpp = CreateTemplateEditor(topGrid, 1, 0, ".hpp 模板", cppTemplateSettings.CppHeaderTemplate);
+        txtTemplateC = CreateTemplateEditor(topGrid, 0, 1, ".c 模板", cppTemplateSettings.CSourceTemplate);
+        txtTemplateH = CreateTemplateEditor(topGrid, 1, 1, ".h 模板", cppTemplateSettings.CHeaderTemplate);
+        split.Panel1.Controls.Add(topGrid);
+
+        txtTemplateOther = CreateTemplateEditor(split.Panel2, ".txt/其他文件模板", cppTemplateSettings.OtherFileTemplate);
+    }
+
+    private void BuildExplorerPage(Control host, ExplorerSettingsConfig explorerSettings)
+    {
+        var title = new Label
+        {
+            Text = "资源管理器",
+            Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold),
+            AutoSize = true,
+            Location = new Point(0, 0)
+        };
+
+        chkRenameSelectNameOnly = new CheckBox
+        {
+            Text = "重命名时默认只选中文件名（不含扩展名）",
+            Checked = explorerSettings.RenameSelectNameOnly,
+            AutoSize = true,
+            Location = new Point(0, 40)
+        };
+
+        var hint = new Label
+        {
+            Text = "关闭后将选中整个名称（含扩展名）。",
+            AutoSize = true,
+            ForeColor = Color.DimGray,
+            Location = new Point(0, 70)
+        };
+
+        host.Controls.Add(title);
+        host.Controls.Add(chkRenameSelectNameOnly);
+        host.Controls.Add(hint);
+    }
+
     private void BuildLayoutPage(Control host, UiSettings uiSettings)
     {
         var title = new Label
@@ -196,11 +313,19 @@ internal sealed class EditorSettingsForm : Form
             Location = new Point(0, 66)
         };
 
+        chkRestoreLastSession = new CheckBox
+        {
+            Text = "启动时恢复上次会话（双击启动时）",
+            Checked = uiSettings.RestoreLastSessionOnStartup,
+            AutoSize = true,
+            Location = new Point(0, 94)
+        };
+
         var widthLabel = new Label
         {
             Text = "资源管理器宽度（像素）：",
             AutoSize = true,
-            Location = new Point(0, 102)
+            Location = new Point(0, 132)
         };
 
         numExplorerWidth = new NumericUpDown
@@ -208,13 +333,14 @@ internal sealed class EditorSettingsForm : Form
             Minimum = 180,
             Maximum = 420,
             Value = Math.Clamp(uiSettings.ExplorerWidth, 180, 420),
-            Location = new Point(0, 128),
+            Location = new Point(0, 158),
             Width = 120
         };
 
         host.Controls.Add(title);
         host.Controls.Add(chkShowProjectTree);
         host.Controls.Add(chkShowOutputPanel);
+        host.Controls.Add(chkRestoreLastSession);
         host.Controls.Add(widthLabel);
         host.Controls.Add(numExplorerWidth);
     }
@@ -572,10 +698,69 @@ internal sealed class EditorSettingsForm : Form
         return true;
     }
 
+    private static TextBox CreateTemplateEditor(Control host, string title, string content)
+    {
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        host.Controls.Add(layout);
+
+        var label = new Label
+        {
+            Text = title,
+            Dock = DockStyle.Fill,
+            AutoSize = true
+        };
+        layout.Controls.Add(label, 0, 0);
+
+        var textBox = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            Multiline = true,
+            AcceptsReturn = true,
+            AcceptsTab = true,
+            ScrollBars = ScrollBars.Both,
+            WordWrap = false,
+            Font = new Font("Consolas", 10f, FontStyle.Regular),
+            Text = content ?? string.Empty
+        };
+        layout.Controls.Add(textBox, 0, 1);
+
+        return textBox;
+    }
+
+    private static TextBox CreateTemplateEditor(TableLayoutPanel host, int column, int row, string title, string content)
+    {
+        var panel = new Panel
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 8, 8)
+        };
+        host.Controls.Add(panel, column, row);
+        return CreateTemplateEditor(panel, title, content);
+    }
+
+    private static string NormalizeTemplateText(string text, string fallbackWhenNullOrEmpty)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return fallbackWhenNullOrEmpty;
+        }
+
+        return text.Replace("\r\n", "\n").Replace('\r', '\n');
+    }
+
     private void TreeSettings_AfterSelect(object? sender, TreeViewEventArgs e)
     {
         pageAutoPairs.Visible = e.Node?.Name == "auto_pairs";
+        pageCppTemplates.Visible = e.Node?.Name == "cpp_templates";
         pageLayout.Visible = e.Node?.Name == "layout";
+        pageExplorer.Visible = e.Node?.Name == "explorer";
         pageShortcuts.Visible = e.Node?.Name == "shortcuts";
     }
 
@@ -610,7 +795,7 @@ internal sealed class EditorSettingsForm : Form
             if (!EditorShortcutKeyFormatter.TryParse(gestureText, out var keys))
             {
                 MessageBox.Show(this, $"“{commandName}” 的快捷键格式无效: {gestureText}", "快捷键设置", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                treeSettings.SelectedNode = treeSettings.Nodes[0].Nodes[1];
+                treeSettings.SelectedNode = FindSettingsNodeByName("shortcuts");
                 dgvShortcuts.CurrentCell = row.Cells[ColumnGesture];
                 dgvShortcuts.BeginEdit(true);
                 return false;
@@ -646,12 +831,45 @@ internal sealed class EditorSettingsForm : Form
             RefreshShortcutConflicts();
             var conflictPreview = string.Join("\r\n", conflicts.Select(pair => $"{pair.Key}: {string.Join("、", pair.Value)}"));
             MessageBox.Show(this, $"检测到快捷键冲突，请先修复后再保存：\r\n{conflictPreview}", "快捷键冲突", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            treeSettings.SelectedNode = treeSettings.Nodes[0].Nodes[1];
+            treeSettings.SelectedNode = FindSettingsNodeByName("shortcuts");
             return false;
         }
 
         shortcutBindings.Clear();
         shortcutBindings.AddRange(pending);
         return true;
+    }
+
+    private TreeNode? FindSettingsNodeByName(string nodeName)
+    {
+        foreach (TreeNode root in treeSettings.Nodes)
+        {
+            var found = FindNodeByNameRecursive(root, nodeName);
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    private static TreeNode? FindNodeByNameRecursive(TreeNode node, string nodeName)
+    {
+        if (string.Equals(node.Name, nodeName, StringComparison.Ordinal))
+        {
+            return node;
+        }
+
+        foreach (TreeNode child in node.Nodes)
+        {
+            var found = FindNodeByNameRecursive(child, nodeName);
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 }

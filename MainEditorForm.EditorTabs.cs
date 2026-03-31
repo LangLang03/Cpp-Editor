@@ -268,7 +268,7 @@ public partial class MainEditorForm
         editorControlMain?.Focus();
     }
 
-    private bool EnsureCanCloseAllDocuments()
+    private bool EnsureCanCloseAllDocuments(bool closeTabs)
     {
         if (tabEditorHost is null || tabEditorHost.TabPages.Count == 0)
         {
@@ -278,7 +278,17 @@ public partial class MainEditorForm
         var tabs = tabEditorHost.TabPages.Cast<TabPage>().ToList();
         foreach (var tab in tabs)
         {
-            if (!TryCloseEditorTab(tab, createFallbackIfEmpty: false))
+            if (closeTabs)
+            {
+                if (!TryCloseEditorTab(tab, createFallbackIfEmpty: false))
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (!ConfirmCloseForTab(tab))
             {
                 return false;
             }

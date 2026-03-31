@@ -19,8 +19,16 @@ public partial class MainEditorForm
     private ToolStripMenuItem contextDelete = null!;
     private ToolStripMenuItem contextRefresh = null!;
 
-    private string? copiedNodePath;
+    private readonly List<string> copiedNodePaths = new();
+    private readonly List<TreeNode> selectedExplorerNodes = new();
+    private TreeNode? explorerSelectionAnchorNode;
     private bool isEditingTreeLabel;
+
+    [global::System.Runtime.InteropServices.DllImport("user32.dll", CharSet = global::System.Runtime.InteropServices.CharSet.Auto)]
+    private static extern nint SendMessage(nint hWnd, int msg, nint wParam, nint lParam);
+
+    private const int TVM_GETEDITCONTROL = 0x110F;
+    private const int EM_SETSEL = 0x00B1;
 
     private enum ExplorerNodeKind
     {
@@ -50,6 +58,7 @@ public partial class MainEditorForm
             Dock = DockStyle.Fill,
             HideSelection = false,
             LabelEdit = true,
+            DrawMode = TreeViewDrawMode.OwnerDrawText,
             Name = "treeProject",
             TabIndex = 0
         };
@@ -61,10 +70,13 @@ public partial class MainEditorForm
         projectTree.AfterLabelEdit += TreeProject_AfterLabelEdit;
         projectTree.KeyDown += TreeProject_KeyDown;
         projectTree.MouseUp += TreeProject_MouseUp;
+        projectTree.DrawNode += TreeProject_DrawNode;
 
         projectTreeContextMenu = CreateProjectTreeContextMenu();
         projectTree.ContextMenuStrip = projectTreeContextMenu;
 
+        // Bind field before calling selection helpers used by initial reset.
+        treeProject = projectTree;
         ResetTreeToQuickOpen(projectTree);
         return projectTree;
     }
@@ -74,6 +86,7 @@ public partial class MainEditorForm
         projectTree.Nodes.Clear();
         projectTree.Nodes.Add(CreateCommandNode("\u6253\u5F00\u6587\u4EF6\u5939...", ExplorerNodeKind.CommandOpenFolder));
         projectTree.Nodes.Add(CreateCommandNode("\u6253\u5F00\u6587\u4EF6...", ExplorerNodeKind.CommandOpenFile));
+        SelectSingleExplorerNode(null);
     }
 
     private ContextMenuStrip CreateProjectTreeContextMenu()
@@ -211,6 +224,185 @@ public partial class MainEditorForm
         e.SuppressKeyPress = true;
     }
 
+    private IReadOnlyList<TreeNode> GetExplorerSelectedNodes()
+    {
+        var nodes = selectedExplorerNodes
+            .Where(node => node.TreeView == treeProject)
+            .Distinct()
+            .ToList();
+
+        if (nodes.Count == 0 && treeProject.SelectedNode is not null)
+        {
+            nodes.Add(treeProject.SelectedNode);
+        }
+
+        return nodes;
+    }
+
+    private IReadOnlyList<TreeNode> GetSelectedFileSystemNodes()
+    {
+        return GetExplorerSelectedNodes()
+            .Where(IsFileSystemNode)
+            .ToList();
+    }
+
+    private void SelectSingleExplorerNode(TreeNode? node)
+    {
+        selectedExplorerNodes.Clear();
+
+        if (node is not null)
+        {
+            selectedExplorerNodes.Add(node);
+            explorerSelectionAnchorNode = node;
+            treeProject.SelectedNode = node;
+        }
+        else
+        {
+            explorerSelectionAnchorNode = null;
+            treeProject.SelectedNode = null;
+        }
+
+        treeProject.Invalidate();
+    }
+
+    private void ToggleExplorerNodeSelection(TreeNode node)
+    {
+        var existingIndex = selectedExplorerNodes.FindIndex(item => item == node);
+        if (existingIndex >= 0)
+        {
+            selectedExplorerNodes.RemoveAt(existingIndex);
+            if (selectedExplorerNodes.Count == 0)
+            {
+                treeProject.SelectedNode = null;
+            }
+            else if (treeProject.SelectedNode is null || !selectedExplorerNodes.Contains(treeProject.SelectedNode))
+            {
+                treeProject.SelectedNode = selectedExplorerNodes[^1];
+            }
+        }
+        else
+        {
+            selectedExplorerNodes.Add(node);
+            treeProject.SelectedNode = node;
+            explorerSelectionAnchorNode ??= node;
+        }
+
+        treeProject.Invalidate();
+    }
+
+    private void SelectExplorerNodeRange(TreeNode targetNode)
+    {
+        var anchor = explorerSelectionAnchorNode ?? treeProject.SelectedNode ?? targetNode;
+        var visibleNodes = EnumerateVisibleNodes();
+        var anchorIndex = visibleNodes.IndexOf(anchor);
+        var targetIndex = visibleNodes.IndexOf(targetNode);
+        if (anchorIndex < 0 || targetIndex < 0)
+        {
+            SelectSingleExplorerNode(targetNode);
+            return;
+        }
+
+        var start = Math.Min(anchorIndex, targetIndex);
+        var end = Math.Max(anchorIndex, targetIndex);
+
+        selectedExplorerNodes.Clear();
+        for (var i = start; i <= end; i++)
+        {
+            selectedExplorerNodes.Add(visibleNodes[i]);
+        }
+
+        treeProject.SelectedNode = targetNode;
+        treeProject.Invalidate();
+    }
+
+    private List<TreeNode> EnumerateVisibleNodes()
+    {
+        var result = new List<TreeNode>();
+        foreach (TreeNode rootNode in treeProject.Nodes)
+        {
+            AppendVisibleNodes(rootNode, result);
+        }
+
+        return result;
+    }
+
+    private static void AppendVisibleNodes(TreeNode node, List<TreeNode> sink)
+    {
+        sink.Add(node);
+        if (!node.IsExpanded)
+        {
+            return;
+        }
+
+        foreach (TreeNode child in node.Nodes)
+        {
+            AppendVisibleNodes(child, sink);
+        }
+    }
+
+    private bool IsExplorerNodeSelected(TreeNode node)
+    {
+        return selectedExplorerNodes.Contains(node);
+    }
+
+    private void UpdateSelectionFromNodeClick(TreeNode node, MouseButtons button)
+    {
+        var control = (ModifierKeys & Keys.Control) == Keys.Control;
+        var shift = (ModifierKeys & Keys.Shift) == Keys.Shift;
+
+        if (shift)
+        {
+            SelectExplorerNodeRange(node);
+            return;
+        }
+
+        if (control)
+        {
+            ToggleExplorerNodeSelection(node);
+            return;
+        }
+
+        if (button == MouseButtons.Right && IsExplorerNodeSelected(node))
+        {
+            treeProject.SelectedNode = node;
+            treeProject.Invalidate();
+            return;
+        }
+
+        SelectSingleExplorerNode(node);
+    }
+
+    private void TreeProject_DrawNode(object? sender, DrawTreeNodeEventArgs e)
+    {
+        if (e.Node is null)
+        {
+            return;
+        }
+
+        var selected = IsExplorerNodeSelected(e.Node);
+        var backColor = selected
+            ? (treeProject.Focused ? SystemColors.Highlight : Color.FromArgb(225, 236, 250))
+            : treeProject.BackColor;
+        var foreColor = selected
+            ? (treeProject.Focused ? SystemColors.HighlightText : treeProject.ForeColor)
+            : treeProject.ForeColor;
+
+        using var backBrush = new SolidBrush(backColor);
+        e.Graphics.FillRectangle(backBrush, e.Bounds);
+        TextRenderer.DrawText(
+            e.Graphics,
+            e.Node.Text,
+            treeProject.Font,
+            e.Bounds,
+            foreColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+        if (selected && treeProject.Focused)
+        {
+            ControlPaint.DrawFocusRectangle(e.Graphics, e.Bounds, foreColor, backColor);
+        }
+    }
+
     private void OpenFolderFromDialog()
     {
         using var dialog = new FolderBrowserDialog
@@ -253,19 +445,19 @@ public partial class MainEditorForm
         var existing = FindNodeByPath(folderPath);
         if (existing is not null)
         {
-            treeProject.SelectedNode = existing;
+            SelectSingleExplorerNode(existing);
             existing.EnsureVisible();
             return;
         }
 
         var folderNode = CreateDirectoryNode(folderPath);
         treeProject.Nodes.Add(folderNode);
-        treeProject.SelectedNode = folderNode;
+        SelectSingleExplorerNode(folderNode);
         folderNode.Expand();
 
         if (beginEdit)
         {
-            folderNode.BeginEdit();
+            BeginExplorerNodeRename(folderNode);
         }
     }
 
@@ -274,19 +466,19 @@ public partial class MainEditorForm
         var existing = FindNodeByPath(filePath);
         if (existing is not null)
         {
-            treeProject.SelectedNode = existing;
+            SelectSingleExplorerNode(existing);
             existing.EnsureVisible();
             return;
         }
 
         var fileNode = CreateFileNode(filePath);
         treeProject.Nodes.Add(fileNode);
-        treeProject.SelectedNode = fileNode;
+        SelectSingleExplorerNode(fileNode);
         fileNode.EnsureVisible();
 
         if (beginEdit)
         {
-            fileNode.BeginEdit();
+            BeginExplorerNodeRename(fileNode);
         }
     }
 
@@ -353,6 +545,8 @@ public partial class MainEditorForm
 
     private string? GetTargetDirectory(TreeNode? referenceNode)
     {
+        referenceNode ??= GetExplorerSelectedNodes().LastOrDefault();
+
         var nodeData = GetNodeData(referenceNode);
         if (nodeData?.Kind == ExplorerNodeKind.Directory && nodeData.FullPath is not null)
         {
@@ -376,12 +570,22 @@ public partial class MainEditorForm
         return null;
     }
 
-    private string? GetClipboardSourcePath()
+    private IReadOnlyList<string> GetClipboardSourcePaths()
     {
-        if (!string.IsNullOrWhiteSpace(copiedNodePath) &&
-            (File.Exists(copiedNodePath) || Directory.Exists(copiedNodePath)))
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var copiedPath in copiedNodePaths)
         {
-            return copiedNodePath;
+            if (string.IsNullOrWhiteSpace(copiedPath))
+            {
+                continue;
+            }
+
+            if ((File.Exists(copiedPath) || Directory.Exists(copiedPath)) && seen.Add(copiedPath))
+            {
+                result.Add(copiedPath);
+            }
         }
 
         try
@@ -389,9 +593,12 @@ public partial class MainEditorForm
             if (Clipboard.ContainsFileDropList())
             {
                 var fileDropList = Clipboard.GetFileDropList();
-                if (fileDropList.Count > 0)
+                foreach (var item in fileDropList.Cast<string>())
                 {
-                    return fileDropList[0];
+                    if ((File.Exists(item) || Directory.Exists(item)) && seen.Add(item))
+                    {
+                        result.Add(item);
+                    }
                 }
             }
         }
@@ -400,7 +607,7 @@ public partial class MainEditorForm
             // Ignore clipboard access failures and fall back to internal clipboard.
         }
 
-        return null;
+        return result;
     }
 
     private void CreateGeneralFile()
@@ -433,6 +640,19 @@ public partial class MainEditorForm
         CreateNewFileInTarget("new_file.h");
     }
 
+    private string ResolveTemplateForNewFile(string filePath)
+    {
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        return extension switch
+        {
+            ".cpp" or ".cc" or ".cxx" => cppTemplateSettings.CppSourceTemplate ?? string.Empty,
+            ".hpp" or ".hh" or ".hxx" => cppTemplateSettings.CppHeaderTemplate ?? string.Empty,
+            ".c" => cppTemplateSettings.CSourceTemplate ?? string.Empty,
+            ".h" => cppTemplateSettings.CHeaderTemplate ?? string.Empty,
+            _ => cppTemplateSettings.OtherFileTemplate ?? string.Empty
+        };
+    }
+
     private void CreateNewFileInTarget(string defaultFileName)
     {
         var targetDirectory = GetTargetDirectory(treeProject.SelectedNode);
@@ -445,9 +665,8 @@ public partial class MainEditorForm
         try
         {
             var createdPath = BuildUniquePath(targetDirectory, defaultFileName);
-            using (File.Create(createdPath))
-            {
-            }
+            var template = ResolveTemplateForNewFile(createdPath);
+            File.WriteAllText(createdPath, template, new System.Text.UTF8Encoding(false));
 
             RevealPath(createdPath, beginEdit: true);
         }
@@ -483,11 +702,11 @@ public partial class MainEditorForm
         var existingNode = FindNodeByPath(fullPath);
         if (existingNode is not null)
         {
-            treeProject.SelectedNode = existingNode;
+            SelectSingleExplorerNode(existingNode);
             existingNode.EnsureVisible();
             if (beginEdit)
             {
-                existingNode.BeginEdit();
+                BeginExplorerNodeRename(existingNode);
             }
 
             return;
@@ -505,11 +724,11 @@ public partial class MainEditorForm
                 existingNode = FindNodeByPath(fullPath);
                 if (existingNode is not null)
                 {
-                    treeProject.SelectedNode = existingNode;
+                    SelectSingleExplorerNode(existingNode);
                     existingNode.EnsureVisible();
                     if (beginEdit)
                     {
-                        existingNode.BeginEdit();
+                        BeginExplorerNodeRename(existingNode);
                     }
 
                     return;
@@ -556,18 +775,28 @@ public partial class MainEditorForm
 
     private void CopySelectedNode()
     {
-        var selectedData = GetNodeData(treeProject.SelectedNode);
-        if (selectedData?.FullPath is null)
+        var selectedPaths = GetSelectedFileSystemNodes()
+            .Select(node => GetNodeData(node)?.FullPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Cast<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (selectedPaths.Count == 0)
         {
             return;
         }
 
-        copiedNodePath = selectedData.FullPath;
+        copiedNodePaths.Clear();
+        copiedNodePaths.AddRange(selectedPaths);
 
         try
         {
             var fileDropList = new System.Collections.Specialized.StringCollection();
-            fileDropList.Add(copiedNodePath);
+            foreach (var selectedPath in selectedPaths)
+            {
+                fileDropList.Add(selectedPath);
+            }
+
             Clipboard.SetFileDropList(fileDropList);
         }
         catch
@@ -578,8 +807,8 @@ public partial class MainEditorForm
 
     private void PasteIntoSelectedLocation()
     {
-        var sourcePath = GetClipboardSourcePath();
-        if (string.IsNullOrWhiteSpace(sourcePath))
+        var sourcePaths = GetClipboardSourcePaths();
+        if (sourcePaths.Count == 0)
         {
             return;
         }
@@ -593,25 +822,28 @@ public partial class MainEditorForm
 
         try
         {
-            if (Directory.Exists(sourcePath))
+            foreach (var sourcePath in sourcePaths)
             {
-                if (IsInsideDirectory(targetDirectory, sourcePath))
+                if (Directory.Exists(sourcePath))
                 {
-                    MessageBox.Show(this, "\u4E0D\u80FD\u5C06\u6587\u4EF6\u5939\u7C98\u8D34\u5230\u5176\u81EA\u8EAB\u6216\u5B50\u76EE\u5F55\u4E2D\u3002", "\u7C98\u8D34\u5931\u8D25", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
+                    if (IsInsideDirectory(targetDirectory, sourcePath))
+                    {
+                        MessageBox.Show(this, "\u4E0D\u80FD\u5C06\u6587\u4EF6\u5939\u7C98\u8D34\u5230\u5176\u81EA\u8EAB\u6216\u5B50\u76EE\u5F55\u4E2D\u3002", "\u7C98\u8D34\u5931\u8D25", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        continue;
+                    }
+
+                    var targetPath = BuildUniquePath(targetDirectory, Path.GetFileName(sourcePath));
+                    CopyDirectory(sourcePath, targetPath);
+                    RevealPath(targetPath, beginEdit: false);
+                    continue;
                 }
 
-                var targetPath = BuildUniquePath(targetDirectory, Path.GetFileName(sourcePath));
-                CopyDirectory(sourcePath, targetPath);
-                RevealPath(targetPath, beginEdit: false);
-                return;
-            }
-
-            if (File.Exists(sourcePath))
-            {
-                var targetPath = BuildUniquePath(targetDirectory, Path.GetFileName(sourcePath));
-                File.Copy(sourcePath, targetPath);
-                RevealPath(targetPath, beginEdit: false);
+                if (File.Exists(sourcePath))
+                {
+                    var targetPath = BuildUniquePath(targetDirectory, Path.GetFileName(sourcePath));
+                    File.Copy(sourcePath, targetPath);
+                    RevealPath(targetPath, beginEdit: false);
+                }
             }
         }
         catch (Exception ex)
@@ -649,31 +881,88 @@ public partial class MainEditorForm
         }
     }
 
-    private void BeginRenameSelectedNode()
+    private void BeginExplorerNodeRename(TreeNode node)
     {
-        if (!IsFileSystemNode(treeProject.SelectedNode))
+        if (!IsFileSystemNode(node))
         {
             return;
         }
 
-        treeProject.SelectedNode?.BeginEdit();
+        SelectSingleExplorerNode(node);
+        node.BeginEdit();
+
+        if (!explorerSettings.RenameSelectNameOnly)
+        {
+            return;
+        }
+
+        BeginInvoke(new Action(() =>
+        {
+            if (treeProject.IsDisposed || !node.IsEditing)
+            {
+                return;
+            }
+
+            var editHandle = SendMessage(treeProject.Handle, TVM_GETEDITCONTROL, 0, 0);
+            if (editHandle == 0)
+            {
+                return;
+            }
+
+            var text = node.Text ?? string.Empty;
+            var selectEnd = text.Length;
+            var nodeData = GetNodeData(node);
+            if (nodeData?.Kind == ExplorerNodeKind.File)
+            {
+                var extension = Path.GetExtension(text);
+                if (!string.IsNullOrEmpty(extension))
+                {
+                    selectEnd = Math.Max(0, text.Length - extension.Length);
+                }
+            }
+
+            SendMessage(editHandle, EM_SETSEL, 0, selectEnd);
+        }));
+    }
+
+    private void BeginRenameSelectedNode()
+    {
+        var nodes = GetSelectedFileSystemNodes();
+        if (nodes.Count == 0)
+        {
+            return;
+        }
+
+        if (nodes.Count > 1)
+        {
+            MessageBox.Show(this, "多选时无法重命名，请只选择一个文件或文件夹。", "重命名", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        BeginExplorerNodeRename(nodes[0]);
     }
 
     private void DeleteSelectedNode()
     {
-        var selectedNode = treeProject.SelectedNode;
-        var selectedData = GetNodeData(selectedNode);
-        if (selectedData?.FullPath is null)
+        var selectedNodes = GetSelectedFileSystemNodes();
+        if (selectedNodes.Count == 0)
         {
             return;
         }
 
-        var nodeTypeText = selectedData.Kind == ExplorerNodeKind.Directory
-            ? "\u6587\u4EF6\u5939"
-            : "\u6587\u4EF6";
+        if (selectedNodes.Any(node =>
+            GetNodeData(node)?.Kind == ExplorerNodeKind.Directory &&
+            node.Parent is null))
+        {
+            MessageBox.Show(this, "不允许删除根目录节点。", "删除", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var nodeTypeText = selectedNodes.Count > 1 ? "选中项" : (GetNodeData(selectedNodes[0])?.Kind == ExplorerNodeKind.Directory ? "\u6587\u4EF6\u5939" : "\u6587\u4EF6");
+        var nodeDisplay = selectedNodes.Count > 1 ? $"{selectedNodes.Count} 项" : $"\"{selectedNodes[0].Text}\"";
         var result = MessageBox.Show(
             this,
-            $"\u786E\u5B9A\u5220\u9664{nodeTypeText} \"{selectedNode!.Text}\" \u5417\uFF1F",
+            $"\u786E\u5B9A\u5220\u9664{nodeTypeText} {nodeDisplay} \u5417\uFF1F",
             "\u786E\u8BA4\u5220\u9664",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Warning);
@@ -685,16 +974,36 @@ public partial class MainEditorForm
 
         try
         {
-            if (selectedData.Kind == ExplorerNodeKind.Directory && Directory.Exists(selectedData.FullPath))
+            var sortedNodes = selectedNodes
+                .Select(node => new { Node = node, Data = GetNodeData(node) })
+                .Where(item => !string.IsNullOrWhiteSpace(item.Data?.FullPath))
+                .OrderByDescending(item => item.Data!.FullPath!.Length)
+                .ToList();
+
+            foreach (var item in sortedNodes)
             {
-                Directory.Delete(selectedData.FullPath, true);
-            }
-            else if (selectedData.Kind == ExplorerNodeKind.File && File.Exists(selectedData.FullPath))
-            {
-                File.Delete(selectedData.FullPath);
+                var data = item.Data!;
+                var fullPath = data.FullPath!;
+
+                if (data.Kind == ExplorerNodeKind.Directory && Directory.Exists(fullPath))
+                {
+                    Directory.Delete(fullPath, true);
+                }
+                else if (data.Kind == ExplorerNodeKind.File && File.Exists(fullPath))
+                {
+                    File.Delete(fullPath);
+                }
             }
 
-            selectedNode.Remove();
+            foreach (var node in selectedNodes.OrderByDescending(node => node.Level))
+            {
+                if (node.TreeView == treeProject)
+                {
+                    node.Remove();
+                }
+            }
+
+            SelectSingleExplorerNode(treeProject.SelectedNode);
         }
         catch (Exception ex)
         {
@@ -704,36 +1013,46 @@ public partial class MainEditorForm
 
     private void RefreshSelectedNode()
     {
-        var selectedNode = treeProject.SelectedNode;
-        var selectedData = GetNodeData(selectedNode);
-        if (selectedNode is null || selectedData is null)
+        var selectedNodes = GetSelectedFileSystemNodes();
+        if (selectedNodes.Count == 0)
         {
             return;
         }
 
-        if (selectedData.Kind == ExplorerNodeKind.Directory && selectedData.FullPath is not null)
+        foreach (var selectedNode in selectedNodes.ToList())
         {
-            if (!Directory.Exists(selectedData.FullPath))
+            var selectedData = GetNodeData(selectedNode);
+            if (selectedData is null)
             {
-                selectedNode.Remove();
-                return;
+                continue;
             }
 
-            LoadDirectoryChildren(selectedNode, selectedData.FullPath);
-            selectedNode.Expand();
-            return;
-        }
-
-        if (selectedData.Kind == ExplorerNodeKind.File && selectedData.FullPath is not null)
-        {
-            if (!File.Exists(selectedData.FullPath))
+            if (selectedData.Kind == ExplorerNodeKind.Directory && selectedData.FullPath is not null)
             {
-                selectedNode.Remove();
-                return;
+                if (!Directory.Exists(selectedData.FullPath))
+                {
+                    selectedNode.Remove();
+                    continue;
+                }
+
+                LoadDirectoryChildren(selectedNode, selectedData.FullPath);
+                selectedNode.Expand();
+                continue;
             }
 
-            selectedNode.Text = GetDisplayName(selectedData.FullPath);
+            if (selectedData.Kind == ExplorerNodeKind.File && selectedData.FullPath is not null)
+            {
+                if (!File.Exists(selectedData.FullPath))
+                {
+                    selectedNode.Remove();
+                    continue;
+                }
+
+                selectedNode.Text = GetDisplayName(selectedData.FullPath);
+            }
         }
+
+        treeProject.Invalidate();
     }
 
     private void ExecuteNodeAction(TreeNode node)
@@ -789,18 +1108,34 @@ public partial class MainEditorForm
             var hitTest = treeProject.HitTest(cursorPoint);
             if (hitTest.Node is not null)
             {
-                treeProject.SelectedNode = hitTest.Node;
+                UpdateSelectionFromNodeClick(hitTest.Node, MouseButtons.Right);
             }
         }
 
-        var selectedNode = treeProject.SelectedNode;
-        var selectedData = GetNodeData(selectedNode);
-        var selectedKind = selectedData?.Kind;
-        var isFile = selectedKind == ExplorerNodeKind.File;
-        var isDirectory = selectedKind == ExplorerNodeKind.Directory;
-        var isRootDirectory = isDirectory && selectedNode?.Parent is null;
-        var hasClipboardSource = !string.IsNullOrWhiteSpace(GetClipboardSourcePath());
-        var canCreateInSelectedDirectory = isDirectory;
+        var selectedNodes = GetSelectedFileSystemNodes();
+        var hasSelection = selectedNodes.Count > 0;
+        var singleSelection = selectedNodes.Count == 1 ? selectedNodes[0] : treeProject.SelectedNode;
+        var singleData = GetNodeData(singleSelection);
+        var singleKind = singleData?.Kind;
+        var isSingleFile = singleKind == ExplorerNodeKind.File;
+        var isSingleDirectory = singleKind == ExplorerNodeKind.Directory;
+        var isSingleRootDirectory = isSingleDirectory && singleSelection?.Parent is null;
+        var hasClipboardSource = GetClipboardSourcePaths().Count > 0;
+        var canCreateInSelectedDirectory = isSingleDirectory && selectedNodes.Count == 1;
+        var canRenameSingle = singleSelection is not null &&
+            selectedNodes.Count == 1 &&
+            (isSingleFile || (isSingleDirectory && !isSingleRootDirectory));
+        var canDeleteAll = hasSelection &&
+            selectedNodes.All(node =>
+            {
+                var data = GetNodeData(node);
+                if (data?.Kind == ExplorerNodeKind.File)
+                {
+                    return true;
+                }
+
+                return data?.Kind == ExplorerNodeKind.Directory && node.Parent is not null;
+            });
 
         contextNewFile.Enabled = canCreateInSelectedDirectory;
         contextNewFolder.Enabled = canCreateInSelectedDirectory;
@@ -808,15 +1143,15 @@ public partial class MainEditorForm
         contextNewHppFile.Enabled = canCreateInSelectedDirectory;
         contextNewCFile.Enabled = canCreateInSelectedDirectory;
         contextNewHFile.Enabled = canCreateInSelectedDirectory;
-        contextCopy.Enabled = isFile || isDirectory;
-        contextPaste.Enabled = isDirectory && hasClipboardSource;
-        contextRename.Enabled = isFile || (isDirectory && !isRootDirectory);
-        contextDelete.Enabled = isFile || (isDirectory && !isRootDirectory);
-        contextRefresh.Enabled = isFile || isDirectory;
+        contextCopy.Enabled = hasSelection;
+        contextPaste.Enabled = isSingleDirectory && selectedNodes.Count == 1 && hasClipboardSource;
+        contextRename.Enabled = canRenameSingle;
+        contextDelete.Enabled = canDeleteAll;
+        contextRefresh.Enabled = hasSelection;
         contextOpenFolder.Enabled = true;
         contextOpenFile.Enabled = true;
 
-        if (selectedKind is ExplorerNodeKind.CommandOpenFile or ExplorerNodeKind.CommandOpenFolder)
+        if (singleKind is ExplorerNodeKind.CommandOpenFile or ExplorerNodeKind.CommandOpenFolder)
         {
             contextCopy.Enabled = false;
             contextRename.Enabled = false;
@@ -856,10 +1191,12 @@ public partial class MainEditorForm
 
     private void TreeProject_NodeMouseClick(object? sender, TreeNodeMouseClickEventArgs e)
     {
-        if (e.Button == MouseButtons.Right)
+        if (e.Node is null)
         {
-            treeProject.SelectedNode = e.Node;
+            return;
         }
+
+        UpdateSelectionFromNodeClick(e.Node, e.Button);
     }
 
     private void TreeProject_MouseUp(object? sender, MouseEventArgs e)
@@ -872,7 +1209,7 @@ public partial class MainEditorForm
         var hitTest = treeProject.HitTest(e.Location);
         if (hitTest.Node is null)
         {
-            treeProject.SelectedNode = null;
+            SelectSingleExplorerNode(null);
         }
     }
 
@@ -884,7 +1221,44 @@ public partial class MainEditorForm
             return;
         }
 
+        if (e.Node is not null)
+        {
+            SelectSingleExplorerNode(e.Node);
+        }
+
         isEditingTreeLabel = true;
+
+        if (e.Node is null || !explorerSettings.RenameSelectNameOnly)
+        {
+            return;
+        }
+
+        BeginInvoke(new Action(() =>
+        {
+            if (treeProject.IsDisposed || !e.Node.IsEditing)
+            {
+                return;
+            }
+
+            var editHandle = SendMessage(treeProject.Handle, TVM_GETEDITCONTROL, 0, 0);
+            if (editHandle == 0)
+            {
+                return;
+            }
+
+            var labelText = e.Node.Text ?? string.Empty;
+            var selectEnd = labelText.Length;
+            if (GetNodeData(e.Node)?.Kind == ExplorerNodeKind.File)
+            {
+                var extension = Path.GetExtension(labelText);
+                if (!string.IsNullOrEmpty(extension))
+                {
+                    selectEnd = Math.Max(0, labelText.Length - extension.Length);
+                }
+            }
+
+            SendMessage(editHandle, EM_SETSEL, 0, selectEnd);
+        }));
     }
 
     private void TreeProject_AfterLabelEdit(object? sender, NodeLabelEditEventArgs e)
@@ -958,6 +1332,7 @@ public partial class MainEditorForm
 
             nodeData.FullPath = newPath;
             e.Node.Text = GetDisplayName(newPath);
+            treeProject.Invalidate();
         }
         catch (Exception ex)
         {
@@ -985,6 +1360,28 @@ public partial class MainEditorForm
     {
         if (isEditingTreeLabel)
         {
+            return;
+        }
+
+        if (e.Control && e.KeyCode == Keys.A)
+        {
+            selectedExplorerNodes.Clear();
+            foreach (var node in EnumerateVisibleNodes())
+            {
+                if (IsFileSystemNode(node))
+                {
+                    selectedExplorerNodes.Add(node);
+                }
+            }
+
+            if (selectedExplorerNodes.Count > 0)
+            {
+                treeProject.SelectedNode = selectedExplorerNodes[^1];
+                explorerSelectionAnchorNode = selectedExplorerNodes[0];
+            }
+
+            treeProject.Invalidate();
+            ConsumeKey(e);
             return;
         }
 
