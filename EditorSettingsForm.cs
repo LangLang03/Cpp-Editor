@@ -28,6 +28,7 @@ internal sealed class EditorSettingsForm : Form
     private CheckBox chkShowOutputPanel = null!;
     private CheckBox chkRestoreLastSession = null!;
     private NumericUpDown numExplorerWidth = null!;
+    private ComboBox cmbTheme = null!;
     private CheckBox chkRenameSelectNameOnly = null!;
 
     private TextBox txtShortcutRecorder = null!;
@@ -150,7 +151,10 @@ internal sealed class EditorSettingsForm : Form
         ShowProjectTree = chkShowProjectTree.Checked,
         ShowOutputPanel = chkShowOutputPanel.Checked,
         ExplorerWidth = (int)numExplorerWidth.Value,
-        RestoreLastSessionOnStartup = chkRestoreLastSession.Checked
+        RestoreLastSessionOnStartup = chkRestoreLastSession.Checked,
+        ThemeId = cmbTheme.SelectedIndex == 1
+            ? EditorThemeController.DarkThemeId
+            : EditorThemeController.LightThemeId
     };
 
     internal ExplorerSettingsConfig ResultExplorerSettings => new()
@@ -289,6 +293,8 @@ internal sealed class EditorSettingsForm : Form
 
     private void BuildLayoutPage(Control host, UiSettings uiSettings)
     {
+        var normalizedThemeId = EditorThemeController.NormalizeThemeId(uiSettings.ThemeId);
+
         var title = new Label
         {
             Text = "布局",
@@ -297,12 +303,31 @@ internal sealed class EditorSettingsForm : Form
             Location = new Point(0, 0)
         };
 
+        var themeLabel = new Label
+        {
+            Text = "主题：",
+            AutoSize = true,
+            Location = new Point(0, 40)
+        };
+
+        cmbTheme = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Location = new Point(0, 66),
+            Width = 180
+        };
+        cmbTheme.Items.Add("亮色");
+        cmbTheme.Items.Add("暗色");
+        cmbTheme.SelectedIndex = string.Equals(normalizedThemeId, EditorThemeController.DarkThemeId, StringComparison.Ordinal)
+            ? 1
+            : 0;
+
         chkShowProjectTree = new CheckBox
         {
             Text = "显示资源管理器",
             Checked = uiSettings.ShowProjectTree,
             AutoSize = true,
-            Location = new Point(0, 38)
+            Location = new Point(0, 104)
         };
 
         chkShowOutputPanel = new CheckBox
@@ -310,7 +335,7 @@ internal sealed class EditorSettingsForm : Form
             Text = "显示底部输出窗口",
             Checked = uiSettings.ShowOutputPanel,
             AutoSize = true,
-            Location = new Point(0, 66)
+            Location = new Point(0, 132)
         };
 
         chkRestoreLastSession = new CheckBox
@@ -318,14 +343,14 @@ internal sealed class EditorSettingsForm : Form
             Text = "启动时恢复上次会话（双击启动时）",
             Checked = uiSettings.RestoreLastSessionOnStartup,
             AutoSize = true,
-            Location = new Point(0, 94)
+            Location = new Point(0, 160)
         };
 
         var widthLabel = new Label
         {
             Text = "资源管理器宽度（像素）：",
             AutoSize = true,
-            Location = new Point(0, 132)
+            Location = new Point(0, 198)
         };
 
         numExplorerWidth = new NumericUpDown
@@ -333,11 +358,13 @@ internal sealed class EditorSettingsForm : Form
             Minimum = 180,
             Maximum = 420,
             Value = Math.Clamp(uiSettings.ExplorerWidth, 180, 420),
-            Location = new Point(0, 158),
+            Location = new Point(0, 224),
             Width = 120
         };
 
         host.Controls.Add(title);
+        host.Controls.Add(themeLabel);
+        host.Controls.Add(cmbTheme);
         host.Controls.Add(chkShowProjectTree);
         host.Controls.Add(chkShowOutputPanel);
         host.Controls.Add(chkRestoreLastSession);

@@ -22,6 +22,9 @@ public partial class MainEditorForm
     private void ApplyUiSettings(UiSettings settings)
     {
         uiSettings = settings.Clone();
+        uiSettings.ThemeId = EditorThemeController.NormalizeThemeId(uiSettings.ThemeId);
+
+        ApplySelectedTheme();
 
         splitWorkspace.Panel1Collapsed = !uiSettings.ShowProjectTree;
         splitMain.Panel2Collapsed = !uiSettings.ShowOutputPanel;

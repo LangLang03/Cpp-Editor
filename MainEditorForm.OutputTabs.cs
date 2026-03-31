@@ -9,14 +9,16 @@ public partial class MainEditorForm
             Dock = DockStyle.Fill,
             Name = "tabBottom",
             SelectedIndex = 0,
-            TabIndex = 0
+            TabIndex = 0,
+            DrawMode = TabDrawMode.OwnerDrawFixed
         };
+        bottomTabs.DrawItem += TabBottom_DrawItem;
 
         var buildOutputPage = new TabPage
         {
             Name = "tabPageBuildOutput",
             Text = "\u7F16\u8BD1\u8F93\u51FA",
-            Padding = new Padding(3),
+            Padding = new Padding(0),
             UseVisualStyleBackColor = true
         };
 
@@ -35,7 +37,7 @@ public partial class MainEditorForm
         {
             Name = "tabPageCompileErrors",
             Text = "\u7F16\u8BD1\u9519\u8BEF\u5217\u8868",
-            Padding = new Padding(3),
+            Padding = new Padding(0),
             UseVisualStyleBackColor = true
         };
 
@@ -46,7 +48,7 @@ public partial class MainEditorForm
         {
             Name = "tabPageRunOutput",
             Text = "\u8FD0\u884C\u7ED3\u679C",
-            Padding = new Padding(3),
+            Padding = new Padding(0),
             UseVisualStyleBackColor = true
         };
 
@@ -65,7 +67,7 @@ public partial class MainEditorForm
         {
             Name = "tabPageRuntimeLog",
             Text = "\u8FD0\u884C\u65E5\u5FD7",
-            Padding = new Padding(3),
+            Padding = new Padding(0),
             UseVisualStyleBackColor = true
         };
 
@@ -86,6 +88,39 @@ public partial class MainEditorForm
         bottomTabs.Controls.Add(runtimeLogPage);
 
         return bottomTabs;
+    }
+
+    private void TabBottom_DrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (tabBottom is null || e.Index < 0 || e.Index >= tabBottom.TabPages.Count)
+        {
+            return;
+        }
+
+        var tab = tabBottom.TabPages[e.Index];
+        var bounds = e.Bounds;
+        var selected = e.Index == tabBottom.SelectedIndex;
+        var selectedBackColor = tab.BackColor == Color.Empty ? tabBottom.BackColor : tab.BackColor;
+        var unselectedBackColor = BlendColor(tabBottom.BackColor, selectedBackColor, 0.55f);
+        var backColor = selected ? selectedBackColor : unselectedBackColor;
+        var borderColor = splitMain.BackColor;
+
+        using (var backgroundBrush = new SolidBrush(backColor))
+        {
+            e.Graphics.FillRectangle(backgroundBrush, bounds);
+        }
+
+        var textBounds = new Rectangle(bounds.X + 8, bounds.Y + 2, Math.Max(10, bounds.Width - 12), bounds.Height - 4);
+        TextRenderer.DrawText(
+            e.Graphics,
+            tab.Text,
+            tabBottom.Font,
+            textBounds,
+            tabBottom.ForeColor,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+        using var borderPen = new Pen(borderColor);
+        e.Graphics.DrawRectangle(borderPen, bounds);
     }
 
     private static ContextMenuStrip CreateOutputContextMenu(RichTextBox targetTextBox)

@@ -5,15 +5,16 @@ public partial class MainEditorForm : Form
     public MainEditorForm()
     {
         InitializeComponent();
-        ApplyLightTheme();
+        ApplySelectedTheme();
         InitializeUserSettings();
         RestoreLastSessionOnStartupIfNeeded();
         FormClosing += MainEditorForm_FormClosing;
     }
 
-    private void ApplyLightTheme()
+    private void ApplySelectedTheme()
     {
-        EditorThemeController.ApplyLightTheme(
+        EditorThemeController.ApplyTheme(
+            uiSettings.ThemeId,
             this,
             menuMain,
             splitMain,
@@ -25,6 +26,11 @@ public partial class MainEditorForm : Form
             dgvCompileErrors,
             rtbRunOutput,
             rtbRuntimeLog);
+
+        if (editorControlMain is not null)
+        {
+            EditorThemeController.ApplyTheme(uiSettings.ThemeId, editorControlMain);
+        }
     }
 
     private void MainEditorForm_FormClosing(object? sender, FormClosingEventArgs e)

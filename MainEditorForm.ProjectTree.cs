@@ -381,11 +381,9 @@ public partial class MainEditorForm
 
         var selected = IsExplorerNodeSelected(e.Node);
         var backColor = selected
-            ? (treeProject.Focused ? SystemColors.Highlight : Color.FromArgb(225, 236, 250))
+            ? BlendColor(treeProject.BackColor, treeProject.ForeColor, treeProject.Focused ? 0.24d : 0.14d)
             : treeProject.BackColor;
-        var foreColor = selected
-            ? (treeProject.Focused ? SystemColors.HighlightText : treeProject.ForeColor)
-            : treeProject.ForeColor;
+        var foreColor = treeProject.ForeColor;
 
         using var backBrush = new SolidBrush(backColor);
         e.Graphics.FillRectangle(backBrush, e.Bounds);

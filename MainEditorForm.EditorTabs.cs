@@ -48,8 +48,10 @@ public partial class MainEditorForm
             var fallbackTab = new TabPage
             {
                 Text = "编辑器",
-                Padding = new Padding(3),
-                UseVisualStyleBackColor = true
+                Padding = new Padding(0),
+                UseVisualStyleBackColor = false,
+                BackColor = treeProject.BackColor,
+                ForeColor = ForeColor
             };
 
             fallbackTab.Controls.Add(editorHostControl);
@@ -71,7 +73,7 @@ public partial class MainEditorForm
                 TabIndex = 0
             };
 
-            EditorThemeController.ApplyLightTheme(editorControlMain);
+            EditorThemeController.ApplyTheme(uiSettings.ThemeId, editorControlMain);
             InitializeSyntaxHighlighting();
             AttachEditorEventHandlers();
             return editorControlMain;
@@ -103,8 +105,10 @@ public partial class MainEditorForm
 
         var tabPage = new TabPage
         {
-            Padding = new Padding(3),
-            UseVisualStyleBackColor = true,
+            Padding = new Padding(0),
+            UseVisualStyleBackColor = false,
+            BackColor = treeProject.BackColor,
+            ForeColor = ForeColor,
             Tag = state
         };
 
@@ -451,8 +455,12 @@ public partial class MainEditorForm
         var tab = tabEditorHost.TabPages[e.Index];
         var bounds = e.Bounds;
         var selected = e.Index == tabEditorHost.SelectedIndex;
+        var selectedBackColor = tab.BackColor == Color.Empty ? tabEditorHost.BackColor : tab.BackColor;
+        var unselectedBackColor = BlendColor(tabEditorHost.BackColor, selectedBackColor, 0.55f);
+        var tabTextColor = tabEditorHost.ForeColor;
+        var borderColor = splitWorkspace.BackColor;
 
-        using (var backgroundBrush = new SolidBrush(selected ? Color.White : Color.FromArgb(242, 242, 242)))
+        using (var backgroundBrush = new SolidBrush(selected ? selectedBackColor : unselectedBackColor))
         {
             e.Graphics.FillRectangle(backgroundBrush, bounds);
         }
@@ -469,16 +477,26 @@ public partial class MainEditorForm
             tab.Text,
             tabEditorHost.Font,
             textBounds,
-            Color.Black,
+            tabTextColor,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
-        using (var closePen = new Pen(Color.DimGray, 1.6f))
+        using (var closePen = new Pen(tabTextColor, 1.6f))
         {
             e.Graphics.DrawLine(closePen, closeBounds.Left + 3, closeBounds.Top + 3, closeBounds.Right - 3, closeBounds.Bottom - 3);
             e.Graphics.DrawLine(closePen, closeBounds.Right - 3, closeBounds.Top + 3, closeBounds.Left + 3, closeBounds.Bottom - 3);
         }
 
-        using var borderPen = new Pen(Color.Gainsboro);
+        using var borderPen = new Pen(borderColor);
         e.Graphics.DrawRectangle(borderPen, bounds);
+    }
+
+    private static Color BlendColor(Color baseColor, Color overlayColor, double overlayRatio)
+    {
+        var ratio = Math.Clamp(overlayRatio, 0d, 1d);
+        var inverse = 1d - ratio;
+        return Color.FromArgb(
+            (int)Math.Round(baseColor.R * inverse + overlayColor.R * ratio),
+            (int)Math.Round(baseColor.G * inverse + overlayColor.G * ratio),
+            (int)Math.Round(baseColor.B * inverse + overlayColor.B * ratio));
     }
 }

@@ -215,7 +215,8 @@ internal static class EditorConfigurationController
             ShowProjectTree = ui.ShowProjectTree,
             ShowOutputPanel = ui.ShowOutputPanel,
             ExplorerWidth = Math.Clamp(ui.ExplorerWidth, 180, 420),
-            RestoreLastSessionOnStartup = ui.RestoreLastSessionOnStartup
+            RestoreLastSessionOnStartup = ui.RestoreLastSessionOnStartup,
+            ThemeId = EditorThemeController.NormalizeThemeId(ui.ThemeId)
         };
         if (!UiEquals(ui, normalizedUi))
         {
@@ -390,7 +391,11 @@ internal static class EditorConfigurationController
         return left.ShowProjectTree == right.ShowProjectTree &&
                left.ShowOutputPanel == right.ShowOutputPanel &&
                left.ExplorerWidth == right.ExplorerWidth &&
-               left.RestoreLastSessionOnStartup == right.RestoreLastSessionOnStartup;
+               left.RestoreLastSessionOnStartup == right.RestoreLastSessionOnStartup &&
+               string.Equals(
+                   EditorThemeController.NormalizeThemeId(left.ThemeId),
+                   EditorThemeController.NormalizeThemeId(right.ThemeId),
+                   StringComparison.Ordinal);
     }
 
     private static bool ShortcutSectionEquals(ShortcutSettingsSection? left, ShortcutSettingsSection right)

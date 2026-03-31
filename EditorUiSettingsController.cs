@@ -23,6 +23,8 @@ internal sealed class UiSettings
 
     public bool RestoreLastSessionOnStartup { get; set; } = true;
 
+    public string ThemeId { get; set; } = EditorThemeController.LightThemeId;
+
     internal UiSettings Clone()
     {
         return new UiSettings
@@ -30,7 +32,8 @@ internal sealed class UiSettings
             ShowProjectTree = ShowProjectTree,
             ShowOutputPanel = ShowOutputPanel,
             ExplorerWidth = ExplorerWidth,
-            RestoreLastSessionOnStartup = RestoreLastSessionOnStartup
+            RestoreLastSessionOnStartup = RestoreLastSessionOnStartup,
+            ThemeId = ThemeId
         };
     }
 }
