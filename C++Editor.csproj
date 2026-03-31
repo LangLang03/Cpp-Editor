@@ -32,10 +32,10 @@
       <TargetPath>sweeteditor.dll</TargetPath>
     </Content>
 
-    <Content Include="mingw64\**\*">
+    <Content Include="msvc\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <TargetPath>mingw64\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+      <TargetPath>msvc\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
     </Content>
 
     <Content Include="editor\syntaxes\**\*.json">

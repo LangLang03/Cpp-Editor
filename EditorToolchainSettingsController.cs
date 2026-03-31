@@ -2,11 +2,12 @@
 
 internal static class EditorToolchainSettingsController
 {
-    private const string BuiltInVsRoot = @"C:\Program Files\Microsoft Visual Studio\18\Community";
     private const string BuiltInMsvcVersion = "14.50.35717";
 
-    private static readonly string BuiltInCompilerPath = Path.Combine(
-        BuiltInVsRoot,
+    private static string BuiltInRootPath => Path.Combine(AppContext.BaseDirectory, "msvc");
+
+    private static string BuiltInCompilerPath => Path.Combine(
+        BuiltInRootPath,
         "VC",
         "Tools",
         "MSVC",
@@ -16,8 +17,8 @@ internal static class EditorToolchainSettingsController
         "x64",
         "cl.exe");
 
-    private static readonly string BuiltInSetupScriptPath = Path.Combine(
-        BuiltInVsRoot,
+    private static string BuiltInSetupScriptPath => Path.Combine(
+        BuiltInRootPath,
         "VC",
         "Auxiliary",
         "Build",
@@ -25,9 +26,9 @@ internal static class EditorToolchainSettingsController
 
     internal static ToolchainSettingsConfig Get()
     {
-        var settings = Normalize(EditorConfigurationController.GetToolchainSettings());
-        EditorConfigurationController.SaveToolchainSettings(settings);
-        return settings;
+        var normalized = Normalize(EditorConfigurationController.GetToolchainSettings());
+        EditorConfigurationController.SaveToolchainSettings(normalized);
+        return normalized;
     }
 
     internal static void Save(ToolchainSettingsConfig settings)
@@ -39,50 +40,28 @@ internal static class EditorToolchainSettingsController
     {
         var normalized = Normalize(settings);
         compilerPath = normalized.CompilerPath;
-        detail = string.Empty;
-
-        if (string.IsNullOrWhiteSpace(compilerPath))
+        if (File.Exists(compilerPath))
         {
-            detail = "未配置 MSVC 编译器路径。";
-            return false;
+            detail = $"来自内置 MSVC: {compilerPath}";
+            return true;
         }
 
-        if (!File.Exists(compilerPath))
-        {
-            detail = $"内置 MSVC 编译器不存在: {compilerPath}";
-            return false;
-        }
-
-        if (!compilerPath.EndsWith("cl.exe", StringComparison.OrdinalIgnoreCase))
-        {
-            detail = $"编译器必须是 cl.exe: {compilerPath}";
-            return false;
-        }
-
-        detail = $"来自内置 MSVC: {compilerPath}";
-        return true;
+        detail = $"内置 MSVC 编译器不存在: {compilerPath}";
+        return false;
     }
 
     internal static bool TryResolveCompilerSetupScript(ToolchainSettingsConfig settings, out string setupScriptPath, out string detail)
     {
         var normalized = Normalize(settings);
         setupScriptPath = normalized.SetupScriptPath;
-        detail = string.Empty;
-
-        if (string.IsNullOrWhiteSpace(setupScriptPath))
+        if (File.Exists(setupScriptPath))
         {
-            detail = "未配置 vcvars64.bat 路径。";
-            return false;
+            detail = $"使用内置环境脚本: {setupScriptPath}";
+            return true;
         }
 
-        if (!File.Exists(setupScriptPath))
-        {
-            detail = $"内置 vcvars64.bat 不存在: {setupScriptPath}";
-            return false;
-        }
-
-        detail = $"使用环境脚本: {setupScriptPath}";
-        return true;
+        detail = $"内置 vcvars64.bat 不存在: {setupScriptPath}";
+        return false;
     }
 
     internal static bool TryResolveDebuggerExecutable(ToolchainSettingsConfig settings, out string debuggerPath, out string detail)
@@ -97,15 +76,9 @@ internal static class EditorToolchainSettingsController
         var input = settings ?? ToolchainSettingsConfig.CreateDefault();
         return new ToolchainSettingsConfig
         {
-            CompilerPath = string.IsNullOrWhiteSpace(input.CompilerPath)
-                ? BuiltInCompilerPath
-                : input.CompilerPath.Trim(),
-            SetupScriptPath = string.IsNullOrWhiteSpace(input.SetupScriptPath)
-                ? BuiltInSetupScriptPath
-                : input.SetupScriptPath.Trim(),
-            ToolchainRootPath = string.IsNullOrWhiteSpace(input.ToolchainRootPath)
-                ? BuiltInVsRoot
-                : input.ToolchainRootPath.Trim(),
+            CompilerPath = BuiltInCompilerPath,
+            SetupScriptPath = BuiltInSetupScriptPath,
+            ToolchainRootPath = BuiltInRootPath,
             CompilerArguments = string.IsNullOrWhiteSpace(input.CompilerArguments)
                 ? "/std:c++17 /EHsc /Zi /nologo"
                 : input.CompilerArguments.Trim(),

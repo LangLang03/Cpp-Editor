@@ -1,4 +1,4 @@
-namespace C__Editor;
+﻿namespace C__Editor;
 
 public partial class MainEditorForm
 {

@@ -1,21 +1,20 @@
-namespace C__Editor;
+﻿namespace C__Editor;
 
 internal sealed class ToolchainSettingsForm : Form
 {
-    private readonly TextBox txtArchivePath;
-    private readonly TextBox txtRootPath;
-    private readonly TextBox txtGppPath;
-    private readonly TextBox txtGdbPath;
+    private readonly TextBox txtToolchainRoot;
+    private readonly TextBox txtSetupScript;
+    private readonly TextBox txtCompilerPath;
     private readonly TextBox txtCompilerArgs;
     private readonly TextBox txtBuildOutputDirectory;
 
     internal ToolchainSettingsForm(ToolchainSettingsConfig currentSettings)
     {
-        Text = "编译器设置";
+        Text = "MSVC 编译器设置";
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.Sizable;
-        MinimumSize = new Size(860, 560);
-        ClientSize = new Size(980, 620);
+        MinimumSize = new Size(820, 520);
+        ClientSize = new Size(920, 560);
 
         var root = new TableLayoutPanel
         {
@@ -31,29 +30,26 @@ internal sealed class ToolchainSettingsForm : Form
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 3,
-            RowCount = 8,
+            ColumnCount = 2,
+            RowCount = 7,
             AutoScroll = true
         };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220f));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110f));
 
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < 6; i++)
         {
             grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
 
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-
         root.Controls.Add(grid, 0, 0);
 
-        txtArchivePath = CreatePathRow(grid, 0, "MinGW 压缩包路径 (.7z)", currentSettings.CompilerArchivePath, BrowseArchivePath);
-        txtRootPath = CreatePathRow(grid, 1, "工具链根目录", currentSettings.ToolchainRootPath, BrowseRootPath);
-        txtGppPath = CreatePathRow(grid, 2, "g++.exe 路径", currentSettings.GppPath, BrowseGppPath);
-        txtGdbPath = CreatePathRow(grid, 3, "gdb.exe 路径", currentSettings.GdbPath, BrowseGdbPath);
-        txtCompilerArgs = CreateTextRow(grid, 4, "编译参数", currentSettings.CompilerArguments);
-        txtBuildOutputDirectory = CreateTextRow(grid, 5, "输出目录（相对工作区）", currentSettings.BuildOutputDirectory);
+        txtToolchainRoot = CreateReadOnlyRow(grid, 0, "内置 MSVC 根目录", currentSettings.ToolchainRootPath);
+        txtSetupScript = CreateReadOnlyRow(grid, 1, "环境脚本 (vcvars64.bat)", currentSettings.SetupScriptPath);
+        txtCompilerPath = CreateReadOnlyRow(grid, 2, "编译器 (cl.exe)", currentSettings.CompilerPath);
+        txtCompilerArgs = CreateTextRow(grid, 3, "编译参数", currentSettings.CompilerArguments);
+        txtBuildOutputDirectory = CreateTextRow(grid, 4, "输出目录（相对工作区）", currentSettings.BuildOutputDirectory);
 
         var hint = new Label
         {
@@ -61,11 +57,11 @@ internal sealed class ToolchainSettingsForm : Form
             AutoSize = true,
             ForeColor = Color.DimGray,
             Text =
-                "优先级: 手动 g++.exe/gdb.exe -> 工具链根目录 -> 压缩包推断 -> PATH。\r\n" +
-                "建议编译参数: -std=c++17 -g"
+                "当前版本固定使用项目内置 msvc 文件夹，不再使用 MinGW。\r\n" +
+                "建议参数: /std:c++17 /EHsc /Zi /nologo"
         };
-        grid.Controls.Add(hint, 0, 6);
-        grid.SetColumnSpan(hint, 3);
+        grid.Controls.Add(hint, 0, 5);
+        grid.SetColumnSpan(hint, 2);
 
         var buttonPanel = new FlowLayoutPanel
         {
@@ -80,6 +76,7 @@ internal sealed class ToolchainSettingsForm : Form
             AutoSize = true,
             DialogResult = DialogResult.OK
         };
+
         var btnCancel = new Button
         {
             Text = "取消",
@@ -97,15 +94,19 @@ internal sealed class ToolchainSettingsForm : Form
 
     internal ToolchainSettingsConfig ResultSettings => new()
     {
-        CompilerArchivePath = txtArchivePath.Text.Trim(),
-        ToolchainRootPath = txtRootPath.Text.Trim(),
-        GppPath = txtGppPath.Text.Trim(),
-        GdbPath = txtGdbPath.Text.Trim(),
+        ToolchainRootPath = txtToolchainRoot.Text.Trim(),
+        SetupScriptPath = txtSetupScript.Text.Trim(),
+        CompilerPath = txtCompilerPath.Text.Trim(),
         CompilerArguments = txtCompilerArgs.Text.Trim(),
-        BuildOutputDirectory = txtBuildOutputDirectory.Text.Trim()
+        BuildOutputDirectory = txtBuildOutputDirectory.Text.Trim(),
+
+        // legacy MinGW fields cleared
+        CompilerArchivePath = string.Empty,
+        GppPath = string.Empty,
+        GdbPath = string.Empty
     };
 
-    private static TextBox CreatePathRow(TableLayoutPanel host, int rowIndex, string labelText, string value, EventHandler browseHandler)
+    private static TextBox CreateReadOnlyRow(TableLayoutPanel host, int rowIndex, string labelText, string value)
     {
         var label = new Label
         {
@@ -119,19 +120,10 @@ internal sealed class ToolchainSettingsForm : Form
         {
             Text = value ?? string.Empty,
             Dock = DockStyle.Fill,
-            Margin = new Padding(0, 4, 8, 4)
+            Margin = new Padding(0, 4, 8, 4),
+            ReadOnly = true
         };
         host.Controls.Add(textBox, 1, rowIndex);
-
-        var button = new Button
-        {
-            Text = "浏览...",
-            AutoSize = true,
-            Margin = new Padding(0, 3, 0, 3)
-        };
-        button.Click += browseHandler;
-        host.Controls.Add(button, 2, rowIndex);
-
         return textBox;
     }
 
@@ -152,67 +144,6 @@ internal sealed class ToolchainSettingsForm : Form
             Margin = new Padding(0, 4, 8, 4)
         };
         host.Controls.Add(textBox, 1, rowIndex);
-        host.SetColumnSpan(textBox, 2);
         return textBox;
-    }
-
-    private void BrowseArchivePath(object? sender, EventArgs e)
-    {
-        using var dialog = new OpenFileDialog
-        {
-            Title = "选择 MinGW 压缩包",
-            CheckFileExists = true,
-            Filter = "7z 文件 (*.7z)|*.7z|所有文件 (*.*)|*.*"
-        };
-
-        if (dialog.ShowDialog(this) == DialogResult.OK)
-        {
-            txtArchivePath.Text = dialog.FileName;
-        }
-    }
-
-    private void BrowseRootPath(object? sender, EventArgs e)
-    {
-        using var dialog = new FolderBrowserDialog
-        {
-            Description = "选择工具链根目录（包含 bin/g++.exe）",
-            UseDescriptionForTitle = true,
-            ShowNewFolderButton = false
-        };
-
-        if (dialog.ShowDialog(this) == DialogResult.OK)
-        {
-            txtRootPath.Text = dialog.SelectedPath;
-        }
-    }
-
-    private void BrowseGppPath(object? sender, EventArgs e)
-    {
-        using var dialog = new OpenFileDialog
-        {
-            Title = "选择 g++.exe",
-            CheckFileExists = true,
-            Filter = "g++.exe|g++.exe|可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*"
-        };
-
-        if (dialog.ShowDialog(this) == DialogResult.OK)
-        {
-            txtGppPath.Text = dialog.FileName;
-        }
-    }
-
-    private void BrowseGdbPath(object? sender, EventArgs e)
-    {
-        using var dialog = new OpenFileDialog
-        {
-            Title = "选择 gdb.exe",
-            CheckFileExists = true,
-            Filter = "gdb.exe|gdb.exe|可执行文件 (*.exe)|*.exe|所有文件 (*.*)|*.*"
-        };
-
-        if (dialog.ShowDialog(this) == DialogResult.OK)
-        {
-            txtGdbPath.Text = dialog.FileName;
-        }
     }
 }

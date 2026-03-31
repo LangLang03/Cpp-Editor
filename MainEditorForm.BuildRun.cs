@@ -6,8 +6,16 @@ namespace C__Editor;
 
 public partial class MainEditorForm
 {
-    private static readonly Regex CompilerDiagnosticRegex = new(
+    private static readonly Regex GnuCompilerDiagnosticRegex = new(
         @"^(?<file>.+):(?<line>\d+):(?<column>\d+):\s*(?<severity>fatal error|error|warning|note):\s*(?<message>.*)$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex MsvcCompilerDiagnosticRegex = new(
+        @"^(?<file>.+)\((?<line>\d+)(,(?<column>\d+))?\)\s*:\s*(?<severity>fatal error|error|warning|note)\s*(?<code>[A-Za-z]+\d+)\s*:\s*(?<message>.*)$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex MsvcToolDiagnosticRegex = new(
+        @"^(?<tool>cl|link)\s*:\s*(?<severity>fatal error|error|warning)\s*(?<code>[A-Za-z]+\d+)\s*:\s*(?<message>.*)$",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly Regex DiagnosticCodeRegex = new(@"\[(?<code>[^\]]+)\]\s*$", RegexOptions.Compiled);
@@ -24,6 +32,8 @@ public partial class MainEditorForm
     private sealed class BuildContext
     {
         public string CompilerPath { get; init; } = string.Empty;
+
+        public string SetupScriptPath { get; init; } = string.Empty;
 
         public string WorkingDirectory { get; init; } = string.Empty;
 
@@ -119,9 +129,10 @@ public partial class MainEditorForm
 
         AppendBuildOutput($"开始编译: {context.SourceFilePath}");
         AppendBuildOutput($"使用编译器: {context.CompilerPath}");
+        AppendBuildOutput($"使用环境脚本: {context.SetupScriptPath}");
         AppendBuildOutput($"工作目录: {context.WorkingDirectory}");
         AppendBuildOutput($"命令: {QuoteArgumentForDisplay(context.CompilerPath)} {BuildDisplayArguments(context.Arguments)}");
-        AppendBuildOutput($"通过 cmd 执行: {BuildCmdDisplayText(context.CompilerPath, context.Arguments)}");
+        AppendBuildOutput($"通过 cmd 执行: {BuildCmdDisplayText(context.CompilerPath, context.Arguments, context.SetupScriptPath)}");
 
         if (forceRebuild)
         {
@@ -137,7 +148,8 @@ public partial class MainEditorForm
                 context.WorkingDirectory,
                 stdoutLine => HandleCompilerOutputLine(stdoutLine),
                 stderrLine => HandleCompilerOutputLine(stderrLine),
-                token);
+                token,
+                context.SetupScriptPath);
 
             if (exitCode != 0)
             {
@@ -231,12 +243,20 @@ public partial class MainEditorForm
             return false;
         }
 
-        compilerPath = ResolveCompilerPathForSource(compilerPath, sourceFilePath);
+        if (!EditorToolchainSettingsController.TryResolveCompilerSetupScript(toolchainSettings, out var setupScriptPath, out var setupDetail))
+        {
+            AppendBuildOutput(setupDetail);
+            MessageBox.Show(this, setupDetail, "MSVC 环境脚本缺失", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
+        }
+
         AppendBuildOutput(compilerDetail);
+        AppendBuildOutput(setupDetail);
 
         context = new BuildContext
         {
             CompilerPath = compilerPath,
+            SetupScriptPath = setupScriptPath,
             WorkingDirectory = workingDirectory,
             SourceFilePath = sourceFilePath,
             OutputExecutablePath = outputExecutablePath,
@@ -360,14 +380,22 @@ public partial class MainEditorForm
         ToolchainSettingsConfig settings)
     {
         var arguments = ParseCommandLineArguments(settings.CompilerArguments).ToList();
-        if (!arguments.Any(arg => arg.StartsWith("-fdiagnostics-color", StringComparison.OrdinalIgnoreCase)))
+        if (!arguments.Any(arg => arg.Equals("/nologo", StringComparison.OrdinalIgnoreCase)))
         {
-            arguments.Add("-fdiagnostics-color=never");
+            arguments.Add("/nologo");
+        }
+
+        if (string.Equals(Path.GetExtension(sourceFilePath), ".c", StringComparison.OrdinalIgnoreCase))
+        {
+            arguments.Add("/TC");
+        }
+        else
+        {
+            arguments.Add("/TP");
         }
 
         arguments.Add(sourceFilePath);
-        arguments.Add("-o");
-        arguments.Add(outputExecutablePath);
+        arguments.Add($"/Fe:{outputExecutablePath}");
         return arguments;
     }
 
@@ -437,32 +465,16 @@ public partial class MainEditorForm
             : argument;
     }
 
-    private string ResolveCompilerPathForSource(string compilerPath, string sourceFilePath)
-    {
-        if (!string.Equals(Path.GetExtension(sourceFilePath), ".c", StringComparison.OrdinalIgnoreCase))
-        {
-            return compilerPath;
-        }
-
-        var compilerDirectory = Path.GetDirectoryName(compilerPath);
-        if (string.IsNullOrWhiteSpace(compilerDirectory))
-        {
-            return compilerPath;
-        }
-
-        var gccPath = Path.Combine(compilerDirectory, "gcc.exe");
-        return File.Exists(gccPath) ? gccPath : compilerPath;
-    }
-
     private async Task<int> RunProcessAsync(
         string fileName,
         IReadOnlyList<string> arguments,
         string workingDirectory,
         Action<string> onStdout,
         Action<string> onStderr,
-        CancellationToken token)
+        CancellationToken token,
+        string? setupScriptPath = null)
     {
-        var cmdScriptPath = CreateTemporaryCmdScript(fileName, arguments);
+        var cmdScriptPath = CreateTemporaryCmdScript(fileName, arguments, setupScriptPath);
 
         using var process = new Process
         {
@@ -581,9 +593,14 @@ public partial class MainEditorForm
         return string.Join(" ", tokens);
     }
 
-    private static string BuildCmdBody(string executablePath, IReadOnlyList<string> arguments)
+    private static string BuildCmdBody(string executablePath, IReadOnlyList<string> arguments, string? setupScriptPath = null)
     {
-        return $"chcp 65001>nul & {BuildCmdInvocation(executablePath, arguments)}";
+        if (string.IsNullOrWhiteSpace(setupScriptPath))
+        {
+            return $"chcp 65001>nul & {BuildCmdInvocation(executablePath, arguments)}";
+        }
+
+        return $"chcp 65001>nul & call {QuoteArgumentForCmd(setupScriptPath)} >nul & {BuildCmdInvocation(executablePath, arguments)}";
     }
 
     private static string QuoteArgumentForCmd(string argument)
@@ -597,24 +614,31 @@ public partial class MainEditorForm
         return $"\"{escaped}\"";
     }
 
-    private static string CreateTemporaryCmdScript(string executablePath, IReadOnlyList<string> arguments)
+    private static string CreateTemporaryCmdScript(string executablePath, IReadOnlyList<string> arguments, string? setupScriptPath = null)
     {
         var scriptPath = Path.Combine(Path.GetTempPath(), $"cppeditor_{Guid.NewGuid():N}.cmd");
-        var lines = new[]
+        var lines = new List<string>
         {
             "@echo off",
-            "chcp 65001>nul",
-            BuildCmdInvocation(executablePath, arguments),
-            "exit /b %errorlevel%"
+            "chcp 65001>nul"
         };
+
+        if (!string.IsNullOrWhiteSpace(setupScriptPath))
+        {
+            lines.Add($"call {QuoteArgumentForCmd(setupScriptPath)} >nul");
+            lines.Add("if errorlevel 1 exit /b %errorlevel%");
+        }
+
+        lines.Add(BuildCmdInvocation(executablePath, arguments));
+        lines.Add("exit /b %errorlevel%");
 
         File.WriteAllLines(scriptPath, lines, new UTF8Encoding(false));
         return scriptPath;
     }
 
-    private static string BuildCmdDisplayText(string executablePath, IReadOnlyList<string> arguments)
+    private static string BuildCmdDisplayText(string executablePath, IReadOnlyList<string> arguments, string? setupScriptPath = null)
     {
-        return $"cmd /d /c {BuildCmdBody(executablePath, arguments)}";
+        return $"cmd /d /c {BuildCmdBody(executablePath, arguments, setupScriptPath)}";
     }
 
     private void HandleCompilerOutputLine(string line)
@@ -636,44 +660,87 @@ public partial class MainEditorForm
     private bool TryParseCompilerDiagnostic(string line, out CompilerDiagnosticItem item)
     {
         item = new CompilerDiagnosticItem();
-        var match = CompilerDiagnosticRegex.Match(line);
-        if (!match.Success)
+        var msvcMatch = MsvcCompilerDiagnosticRegex.Match(line);
+        if (msvcMatch.Success)
+        {
+            var file = msvcMatch.Groups["file"].Value.Trim();
+            var severity = msvcMatch.Groups["severity"].Value.Trim().ToLowerInvariant();
+            var code = msvcMatch.Groups["code"].Value.Trim();
+            var description = msvcMatch.Groups["message"].Value.Trim();
+
+            _ = int.TryParse(msvcMatch.Groups["line"].Value, out var lineNumber);
+            _ = int.TryParse(msvcMatch.Groups["column"].Value, out var columnNumber);
+
+            item = new CompilerDiagnosticItem
+            {
+                Severity = NormalizeSeverity(severity),
+                File = file,
+                Line = lineNumber,
+                Column = columnNumber,
+                Code = code,
+                Description = description
+            };
+
+            return true;
+        }
+
+        var msvcToolMatch = MsvcToolDiagnosticRegex.Match(line);
+        if (msvcToolMatch.Success)
+        {
+            var severity = msvcToolMatch.Groups["severity"].Value.Trim().ToLowerInvariant();
+            var code = msvcToolMatch.Groups["code"].Value.Trim();
+            var description = msvcToolMatch.Groups["message"].Value.Trim();
+            var tool = msvcToolMatch.Groups["tool"].Value.Trim();
+
+            item = new CompilerDiagnosticItem
+            {
+                Severity = NormalizeSeverity(severity),
+                File = tool,
+                Line = 0,
+                Column = 0,
+                Code = code,
+                Description = description
+            };
+
+            return true;
+        }
+
+        var gnuMatch = GnuCompilerDiagnosticRegex.Match(line);
+        if (!gnuMatch.Success)
         {
             return false;
         }
 
-        var file = match.Groups["file"].Value.Trim();
-        var severity = match.Groups["severity"].Value.Trim().ToLowerInvariant();
-        var description = match.Groups["message"].Value.Trim();
-        var code = ExtractDiagnosticCode(description);
-        if (!string.IsNullOrWhiteSpace(code))
+        var gnuFile = gnuMatch.Groups["file"].Value.Trim();
+        var gnuSeverity = gnuMatch.Groups["severity"].Value.Trim().ToLowerInvariant();
+        var gnuDescription = gnuMatch.Groups["message"].Value.Trim();
+        var gnuCode = ExtractDiagnosticCode(gnuDescription);
+        if (!string.IsNullOrWhiteSpace(gnuCode))
         {
-            description = description.Replace($"[{code}]", string.Empty).Trim();
+            gnuDescription = gnuDescription.Replace($"[{gnuCode}]", string.Empty).Trim();
         }
 
-        if (!int.TryParse(match.Groups["line"].Value, out var lineNumber))
-        {
-            lineNumber = 0;
-        }
-
-        if (!int.TryParse(match.Groups["column"].Value, out var columnNumber))
-        {
-            columnNumber = 0;
-        }
+        _ = int.TryParse(gnuMatch.Groups["line"].Value, out var gnuLineNumber);
+        _ = int.TryParse(gnuMatch.Groups["column"].Value, out var gnuColumnNumber);
 
         item = new CompilerDiagnosticItem
         {
-            Severity = severity.Contains("warning", StringComparison.Ordinal) ? "警告"
-                : severity.Contains("note", StringComparison.Ordinal) ? "提示"
-                : "错误",
-            File = file,
-            Line = lineNumber,
-            Column = columnNumber,
-            Code = code,
-            Description = description
+            Severity = NormalizeSeverity(gnuSeverity),
+            File = gnuFile,
+            Line = gnuLineNumber,
+            Column = gnuColumnNumber,
+            Code = gnuCode,
+            Description = gnuDescription
         };
 
         return true;
+    }
+
+    private static string NormalizeSeverity(string severity)
+    {
+        return severity.Contains("warning", StringComparison.OrdinalIgnoreCase) ? "警告"
+            : severity.Contains("note", StringComparison.OrdinalIgnoreCase) ? "提示"
+            : "错误";
     }
 
     private static string ExtractDiagnosticCode(string message)
@@ -959,6 +1026,13 @@ public partial class MainEditorForm
     private void TryCopyCompilerRuntimeDependencies(string compilerPath, string outputExecutablePath)
     {
         if (string.IsNullOrWhiteSpace(compilerPath) || string.IsNullOrWhiteSpace(outputExecutablePath))
+        {
+            return;
+        }
+
+        var compilerFileName = Path.GetFileName(compilerPath);
+        if (!string.Equals(compilerFileName, "g++.exe", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(compilerFileName, "gcc.exe", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
