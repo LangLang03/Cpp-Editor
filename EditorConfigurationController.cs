@@ -5,7 +5,7 @@ namespace C__Editor;
 
 internal static class EditorConfigurationController
 {
-    private const int CurrentVersion = 7;
+    private const int CurrentVersion = 8;
     private const string DefaultAutoPairFormat = "<>{}()";
     private static readonly object SyncRoot = new();
 
@@ -420,49 +420,50 @@ internal static class EditorConfigurationController
     private static ToolchainSettingsConfig NormalizeToolchainSection(ToolchainSettingsConfig? section)
     {
         var input = section ?? ToolchainSettingsConfig.CreateDefault();
+        var selectedToolchainId = ResolveSelectedToolchainId(input);
+        var selectedKey = ToolchainCatalog.ToConfigValue(selectedToolchainId);
 
-        var compilerPath = (input.CompilerPath ?? string.Empty).Trim();
-        var setupScriptPath = (input.SetupScriptPath ?? string.Empty).Trim();
-        var toolchainRootPath = (input.ToolchainRootPath ?? string.Empty).Trim();
-
-        // Migrate legacy MinGW fields to the new generic toolchain fields.
-        if (string.IsNullOrWhiteSpace(compilerPath))
+        var argumentsByToolchain = ToolchainCatalog.CreateDefaultArgumentsMap();
+        if (input.ArgumentsByToolchain is not null)
         {
-            compilerPath = (input.GppPath ?? string.Empty).Trim();
+            foreach (var pair in input.ArgumentsByToolchain)
+            {
+                if (!ToolchainCatalog.TryParseId(pair.Key, out var parsedId))
+                {
+                    continue;
+                }
+
+                argumentsByToolchain[ToolchainCatalog.ToConfigValue(parsedId)] =
+                    NormalizeToolchainArguments(parsedId, pair.Value);
+            }
         }
 
-        if (string.IsNullOrWhiteSpace(setupScriptPath))
+        var selectedArguments = NormalizeToolchainArguments(selectedToolchainId, input.CompilerArguments);
+        if (input.ArgumentsByToolchain is null || input.ArgumentsByToolchain.Count == 0)
         {
-            setupScriptPath = (input.GdbPath ?? string.Empty).Trim();
+            argumentsByToolchain[selectedKey] = selectedArguments;
+        }
+        else if (!argumentsByToolchain.TryGetValue(selectedKey, out var existingValue) ||
+                 string.IsNullOrWhiteSpace(existingValue))
+        {
+            argumentsByToolchain[selectedKey] = selectedArguments;
         }
 
-        var compilerArguments = string.IsNullOrWhiteSpace(input.CompilerArguments)
-            ? "/std:c++17 /EHsc /Zi /nologo"
-            : input.CompilerArguments.Trim();
-
-        // Upgrade old GNU default flags to MSVC defaults.
-        if (string.Equals(compilerArguments, "-std=c++17 -g", StringComparison.Ordinal))
+        return new ToolchainSettingsConfig
         {
-            compilerArguments = "/std:c++17 /EHsc /Zi /nologo";
-        }
-
-        var normalized = new ToolchainSettingsConfig
-        {
-            CompilerPath = compilerPath,
-            SetupScriptPath = setupScriptPath,
-            ToolchainRootPath = toolchainRootPath,
-            CompilerArguments = compilerArguments,
+            SelectedToolchainId = selectedKey,
+            ArgumentsByToolchain = argumentsByToolchain,
+            CompilerPath = string.Empty,
+            SetupScriptPath = string.Empty,
+            ToolchainRootPath = string.Empty,
+            CompilerArguments = argumentsByToolchain[selectedKey],
             BuildOutputDirectory = string.IsNullOrWhiteSpace(input.BuildOutputDirectory)
                 ? Path.Combine(".cppeditor", "build")
                 : input.BuildOutputDirectory.Trim(),
-
-            // Clear legacy MinGW-only fields after migration.
             CompilerArchivePath = string.Empty,
             GppPath = string.Empty,
             GdbPath = string.Empty
         };
-
-        return normalized;
     }
 
     private static bool ToolchainSectionEquals(ToolchainSettingsConfig? left, ToolchainSettingsConfig right)
@@ -472,11 +473,123 @@ internal static class EditorConfigurationController
             return false;
         }
 
-        return string.Equals(left.CompilerPath, right.CompilerPath, StringComparison.Ordinal) &&
-               string.Equals(left.SetupScriptPath, right.SetupScriptPath, StringComparison.Ordinal) &&
-               string.Equals(left.ToolchainRootPath, right.ToolchainRootPath, StringComparison.Ordinal) &&
+        return string.Equals(left.SelectedToolchainId, right.SelectedToolchainId, StringComparison.OrdinalIgnoreCase) &&
                string.Equals(left.CompilerArguments, right.CompilerArguments, StringComparison.Ordinal) &&
-               string.Equals(left.BuildOutputDirectory, right.BuildOutputDirectory, StringComparison.Ordinal);
+               string.Equals(left.BuildOutputDirectory, right.BuildOutputDirectory, StringComparison.Ordinal) &&
+               StringDictionaryEquals(left.ArgumentsByToolchain, right.ArgumentsByToolchain);
+    }
+
+    private static ToolchainId ResolveSelectedToolchainId(ToolchainSettingsConfig input)
+    {
+        if (ToolchainCatalog.TryParseId(input.SelectedToolchainId, out var parsed))
+        {
+            return parsed;
+        }
+
+        var legacyCompilerPath = (input.CompilerPath ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(legacyCompilerPath))
+        {
+            legacyCompilerPath = (input.GppPath ?? string.Empty).Trim();
+        }
+
+        var legacyRoot = (input.ToolchainRootPath ?? string.Empty).Trim();
+        var normalizedCompiler = legacyCompilerPath.Replace('/', '\\');
+        var normalizedRoot = legacyRoot.Replace('/', '\\');
+
+        if (!string.IsNullOrWhiteSpace(normalizedCompiler))
+        {
+            if (normalizedCompiler.EndsWith(@"\clang++.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return ToolchainId.ClangPlusPlus;
+            }
+
+            if (normalizedCompiler.EndsWith(@"\clang.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return ToolchainId.Clang;
+            }
+
+            if (normalizedCompiler.EndsWith(@"\g++.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                if (normalizedCompiler.Contains(@"\mingw\", StringComparison.OrdinalIgnoreCase) &&
+                    normalizedCompiler.Contains(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    return ToolchainId.BuiltInMinGw;
+                }
+
+                return ToolchainId.Gpp;
+            }
+
+            if (normalizedCompiler.EndsWith(@"\gcc.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return ToolchainId.Gcc;
+            }
+
+            if (normalizedCompiler.EndsWith(@"\cl.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return normalizedCompiler.Contains(@"\msvc\", StringComparison.OrdinalIgnoreCase) &&
+                       normalizedCompiler.Contains(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
+                    ? ToolchainId.BuiltInMsvc
+                    : ToolchainId.LocalMsvc;
+            }
+        }
+
+        if (normalizedRoot.Contains(@"\mingw", StringComparison.OrdinalIgnoreCase))
+        {
+            return normalizedRoot.Contains(AppContext.BaseDirectory, StringComparison.OrdinalIgnoreCase)
+                ? ToolchainId.BuiltInMinGw
+                : ToolchainId.Gpp;
+        }
+
+        return ToolchainId.BuiltInMsvc;
+    }
+
+    private static string NormalizeToolchainArguments(ToolchainId id, string? value)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return ToolchainCatalog.GetDefaultArguments(id);
+        }
+
+        if (id is ToolchainId.BuiltInMsvc or ToolchainId.LocalMsvc &&
+            string.Equals(trimmed, "-std=c++17 -g", StringComparison.Ordinal))
+        {
+            return ToolchainCatalog.GetDefaultArguments(id);
+        }
+
+        if (id is ToolchainId.BuiltInMinGw or ToolchainId.Gcc or ToolchainId.Gpp or ToolchainId.Clang or ToolchainId.ClangPlusPlus &&
+            string.Equals(trimmed, "/std:c++17 /EHsc /Zi /nologo", StringComparison.Ordinal))
+        {
+            return ToolchainCatalog.GetDefaultArguments(id);
+        }
+
+        return trimmed;
+    }
+
+    private static bool StringDictionaryEquals(
+        Dictionary<string, string>? left,
+        Dictionary<string, string>? right)
+    {
+        if (left is null || right is null)
+        {
+            return false;
+        }
+
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        foreach (var pair in right)
+        {
+            if (!left.TryGetValue(pair.Key, out var value) ||
+                !string.Equals(value, pair.Value, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static ExplorerSettingsConfig NormalizeExplorerSection(ExplorerSettingsConfig? section)
@@ -616,7 +729,7 @@ internal static class EditorConfigurationController
 
 internal sealed class EditorAppConfig
 {
-    public int ConfigVersion { get; set; } = 7;
+    public int ConfigVersion { get; set; } = 8;
 
     public UiSettings Ui { get; set; } = new();
 
@@ -695,6 +808,10 @@ internal sealed class ShortcutSettingsSection
 
 internal sealed class ToolchainSettingsConfig
 {
+    public string SelectedToolchainId { get; set; } = nameof(ToolchainId.BuiltInMsvc);
+
+    public Dictionary<string, string> ArgumentsByToolchain { get; set; } = ToolchainCatalog.CreateDefaultArgumentsMap();
+
     public string CompilerPath { get; set; } = string.Empty;
 
     public string SetupScriptPath { get; set; } = string.Empty;
@@ -716,6 +833,8 @@ internal sealed class ToolchainSettingsConfig
     {
         return new ToolchainSettingsConfig
         {
+            SelectedToolchainId = nameof(ToolchainId.BuiltInMsvc),
+            ArgumentsByToolchain = ToolchainCatalog.CreateDefaultArgumentsMap(),
             CompilerPath = string.Empty,
             SetupScriptPath = string.Empty,
             CompilerArchivePath = string.Empty,
@@ -731,6 +850,10 @@ internal sealed class ToolchainSettingsConfig
     {
         return new ToolchainSettingsConfig
         {
+            SelectedToolchainId = SelectedToolchainId,
+            ArgumentsByToolchain = new Dictionary<string, string>(
+                ArgumentsByToolchain ?? ToolchainCatalog.CreateDefaultArgumentsMap(),
+                StringComparer.OrdinalIgnoreCase),
             CompilerPath = CompilerPath,
             SetupScriptPath = SetupScriptPath,
             CompilerArchivePath = CompilerArchivePath,

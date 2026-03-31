@@ -21,14 +21,29 @@
   <ItemGroup>
     <!-- Exclude third-party build artifacts from this project's compile items. -->
     <Compile Remove="msvc\**" />
+    <Compile Remove="mingw\**" />
     <Compile Remove="ThirdParty\**\obj\**\*.cs;ThirdParty\**\bin\**\*.cs" />
     <EmbeddedResource Remove="msvc\**" />
+    <EmbeddedResource Remove="mingw\**" />
     <EmbeddedResource Remove="ThirdParty\**\obj\**\*;ThirdParty\**\bin\**\*" />
     <None Remove="msvc\**" />
+    <None Remove="mingw\**" />
     <None Remove="ThirdParty\**\obj\**\*;ThirdParty\**\bin\**\*" />
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="msvc\**\*" Condition="Exists('msvc')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <TargetPath>msvc\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+
+    <Content Include="mingw\**\*" Condition="Exists('mingw')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <TargetPath>mingw\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+    </Content>
+
     <Content Include="runtimes\win-x64\native\sweeteditor.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

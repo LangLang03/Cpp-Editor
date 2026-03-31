@@ -31,6 +31,14 @@ public partial class MainEditorForm
 
     private sealed class BuildContext
     {
+        public ToolchainId ToolchainId { get; init; } = ToolchainId.BuiltInMsvc;
+
+        public ToolchainFamily ToolchainFamily { get; init; } = ToolchainFamily.Msvc;
+
+        public string ToolchainDisplayName { get; init; } = string.Empty;
+
+        public string ToolchainSource { get; init; } = string.Empty;
+
         public string CompilerPath { get; init; } = string.Empty;
 
         public string SetupScriptPath { get; init; } = string.Empty;
@@ -135,8 +143,17 @@ public partial class MainEditorForm
         SelectBottomTab(0);
 
         AppendBuildOutput($"开始编译: {context.SourceFilePath}");
+        AppendBuildOutput($"使用工具链: {context.ToolchainDisplayName} ({context.ToolchainSource})");
         AppendBuildOutput($"使用编译器: {context.CompilerPath}");
-        AppendBuildOutput($"使用环境脚本: {context.SetupScriptPath}");
+        if (!string.IsNullOrWhiteSpace(context.SetupScriptPath))
+        {
+            AppendBuildOutput($"使用环境脚本: {context.SetupScriptPath}");
+        }
+        else if (context.ToolchainFamily == ToolchainFamily.Msvc)
+        {
+            AppendBuildOutput("未检测到 vcvars64.bat，将直接调用 cl.exe。");
+        }
+
         AppendBuildOutput($"工作区根目录: {context.WorkspaceRoot}");
         AppendBuildOutput($"工作目录: {context.WorkingDirectory}");
         if (context.CompileListPatterns.Count > 0)
@@ -251,29 +268,32 @@ public partial class MainEditorForm
         var compileListConfig = WorkspaceCompileListController.Load(workspaceRoot);
         var compileSources = ResolveBuildSourceFiles(sourceFilePath, workspaceRoot, compileListConfig.Include);
         var outputExecutablePath = ResolveOutputExecutablePath(sourceFilePath, workingDirectory, toolchainSettings);
-        var compilerArguments = BuildCompilerArguments(compileSources, outputExecutablePath, toolchainSettings);
-
-        if (!EditorToolchainSettingsController.TryResolveCompilerExecutable(toolchainSettings, out var compilerPath, out var compilerDetail))
+        if (!EditorToolchainSettingsController.TryResolveSelectedToolchain(
+                toolchainSettings,
+                out var resolvedToolchain,
+                out var resolveDetail))
         {
-            AppendBuildOutput(compilerDetail);
-            MessageBox.Show(this, compilerDetail, "未找到编译器", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            AppendBuildOutput(resolveDetail);
+            MessageBox.Show(this, resolveDetail, "工具链不可用", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return false;
         }
 
-        if (!EditorToolchainSettingsController.TryResolveCompilerSetupScript(toolchainSettings, out var setupScriptPath, out var setupDetail))
+        var compilerArguments = BuildCompilerArguments(compileSources, outputExecutablePath, resolvedToolchain);
+        AppendBuildOutput(resolveDetail);
+        if (resolvedToolchain.Family == ToolchainFamily.Msvc &&
+            string.IsNullOrWhiteSpace(resolvedToolchain.SetupScriptPath))
         {
-            AppendBuildOutput(setupDetail);
-            MessageBox.Show(this, setupDetail, "MSVC 环境脚本缺失", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return false;
+            AppendBuildOutput("警告: 未配置 vcvars64.bat，MSVC 编译可能因环境变量缺失而失败。");
         }
-
-        AppendBuildOutput(compilerDetail);
-        AppendBuildOutput(setupDetail);
 
         context = new BuildContext
         {
-            CompilerPath = compilerPath,
-            SetupScriptPath = setupScriptPath,
+            ToolchainId = resolvedToolchain.Id,
+            ToolchainFamily = resolvedToolchain.Family,
+            ToolchainDisplayName = resolvedToolchain.DisplayName,
+            ToolchainSource = resolvedToolchain.Source,
+            CompilerPath = resolvedToolchain.CompilerPath,
+            SetupScriptPath = resolvedToolchain.SetupScriptPath,
             WorkspaceRoot = workspaceRoot,
             WorkingDirectory = workingDirectory,
             SourceFilePath = sourceFilePath,
@@ -507,75 +527,13 @@ public partial class MainEditorForm
     private static IReadOnlyList<string> BuildCompilerArguments(
         IReadOnlyList<string> sourceFilePaths,
         string outputExecutablePath,
-        ToolchainSettingsConfig settings)
+        ResolvedToolchainContext toolchainContext)
     {
-        var arguments = ParseCommandLineArguments(settings.CompilerArguments).ToList();
-        if (!arguments.Any(arg => arg.Equals("/nologo", StringComparison.OrdinalIgnoreCase)))
-        {
-            arguments.Add("/nologo");
-        }
-
-        foreach (var sourceFilePath in sourceFilePaths)
-        {
-            if (string.IsNullOrWhiteSpace(sourceFilePath))
-            {
-                continue;
-            }
-
-            arguments.Add(sourceFilePath);
-        }
-
-        arguments.Add($"/Fe:{outputExecutablePath}");
-        return arguments;
-    }
-
-    private static IEnumerable<string> ParseCommandLineArguments(string? argumentsText)
-    {
-        if (string.IsNullOrWhiteSpace(argumentsText))
-        {
-            yield break;
-        }
-
-        var builder = new StringBuilder();
-        var inQuotes = false;
-
-        for (var i = 0; i < argumentsText.Length; i++)
-        {
-            var current = argumentsText[i];
-
-            if (current == '"')
-            {
-                inQuotes = !inQuotes;
-                continue;
-            }
-
-            if (!inQuotes && char.IsWhiteSpace(current))
-            {
-                if (builder.Length > 0)
-                {
-                    yield return builder.ToString();
-                    builder.Clear();
-                }
-
-                continue;
-            }
-
-            if (current == '\\' &&
-                i + 1 < argumentsText.Length &&
-                argumentsText[i + 1] == '"')
-            {
-                builder.Append('"');
-                i++;
-                continue;
-            }
-
-            builder.Append(current);
-        }
-
-        if (builder.Length > 0)
-        {
-            yield return builder.ToString();
-        }
+        var builder = CompilerCommandBuilderFactory.Get(toolchainContext.Family);
+        return builder.BuildArguments(
+            sourceFilePaths,
+            outputExecutablePath,
+            toolchainContext.CompilerArguments);
     }
 
     private static string BuildDisplayArguments(IReadOnlyList<string> arguments)
@@ -1202,7 +1160,9 @@ public partial class MainEditorForm
 
         var compilerFileName = Path.GetFileName(compilerPath);
         if (!string.Equals(compilerFileName, "g++.exe", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(compilerFileName, "gcc.exe", StringComparison.OrdinalIgnoreCase))
+            !string.Equals(compilerFileName, "gcc.exe", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(compilerFileName, "clang++.exe", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(compilerFileName, "clang.exe", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
