@@ -80,46 +80,19 @@ public partial class MainEditorForm
     {
         var contextMenu = new ContextMenuStrip();
 
-        contextOpenFolder = new ToolStripMenuItem("\u6253\u5F00\u6587\u4EF6\u5939...", null, (_, _) => OpenFolderFromDialog())
-        {
-            ShortcutKeyDisplayString = "Ctrl+Shift+O"
-        };
-        contextOpenFile = new ToolStripMenuItem("\u6253\u5F00\u6587\u4EF6...", null, (_, _) => OpenFilesFromDialog())
-        {
-            ShortcutKeyDisplayString = "Ctrl+O"
-        };
-        contextNewFile = new ToolStripMenuItem("\u65B0\u5EFA\u6587\u4EF6", null, (_, _) => CreateGeneralFile())
-        {
-            ShortcutKeyDisplayString = "Ctrl+N"
-        };
-        contextNewFolder = new ToolStripMenuItem("\u65B0\u5EFA\u6587\u4EF6\u5939", null, (_, _) => CreateFolder())
-        {
-            ShortcutKeyDisplayString = "Ctrl+Shift+N"
-        };
+        contextOpenFolder = new ToolStripMenuItem("\u6253\u5F00\u6587\u4EF6\u5939...", null, (_, _) => OpenFolderFromDialog());
+        contextOpenFile = new ToolStripMenuItem("\u6253\u5F00\u6587\u4EF6...", null, (_, _) => OpenFilesFromDialog());
+        contextNewFile = new ToolStripMenuItem("\u65B0\u5EFA\u6587\u4EF6", null, (_, _) => CreateGeneralFile());
+        contextNewFolder = new ToolStripMenuItem("\u65B0\u5EFA\u6587\u4EF6\u5939", null, (_, _) => CreateFolder());
         contextNewCppFile = new ToolStripMenuItem("\u65B0\u5EFA C++ \u6E90\u6587\u4EF6 (.cpp)", null, (_, _) => CreateCppFile());
         contextNewHppFile = new ToolStripMenuItem("\u65B0\u5EFA C++ \u5934\u6587\u4EF6 (.hpp)", null, (_, _) => CreateHppFile());
         contextNewCFile = new ToolStripMenuItem("\u65B0\u5EFA C \u6E90\u6587\u4EF6 (.c)", null, (_, _) => CreateCFile());
         contextNewHFile = new ToolStripMenuItem("\u65B0\u5EFA C \u5934\u6587\u4EF6 (.h)", null, (_, _) => CreateHFile());
-        contextCopy = new ToolStripMenuItem("\u590D\u5236", null, (_, _) => CopySelectedNode())
-        {
-            ShortcutKeyDisplayString = "Ctrl+C"
-        };
-        contextPaste = new ToolStripMenuItem("\u7C98\u8D34", null, (_, _) => PasteIntoSelectedLocation())
-        {
-            ShortcutKeyDisplayString = "Ctrl+V"
-        };
-        contextRename = new ToolStripMenuItem("\u91CD\u547D\u540D", null, (_, _) => BeginRenameSelectedNode())
-        {
-            ShortcutKeyDisplayString = "F2"
-        };
-        contextDelete = new ToolStripMenuItem("\u5220\u9664", null, (_, _) => DeleteSelectedNode())
-        {
-            ShortcutKeyDisplayString = "Del"
-        };
-        contextRefresh = new ToolStripMenuItem("\u5237\u65B0", null, (_, _) => RefreshSelectedNode())
-        {
-            ShortcutKeyDisplayString = "F5"
-        };
+        contextCopy = new ToolStripMenuItem("\u590D\u5236", null, (_, _) => CopySelectedNode());
+        contextPaste = new ToolStripMenuItem("\u7C98\u8D34", null, (_, _) => PasteIntoSelectedLocation());
+        contextRename = new ToolStripMenuItem("\u91CD\u547D\u540D", null, (_, _) => BeginRenameSelectedNode());
+        contextDelete = new ToolStripMenuItem("\u5220\u9664", null, (_, _) => DeleteSelectedNode());
+        contextRefresh = new ToolStripMenuItem("\u5237\u65B0", null, (_, _) => RefreshSelectedNode());
 
         contextMenu.Items.AddRange(new ToolStripItem[]
         {
@@ -142,7 +115,26 @@ public partial class MainEditorForm
         });
 
         contextMenu.Opening += ProjectTreeContextMenu_Opening;
+        ApplyProjectTreeShortcutDisplayStrings();
         return contextMenu;
+    }
+
+    private void ApplyProjectTreeShortcutDisplayStrings()
+    {
+        if (contextOpenFolder is null)
+        {
+            return;
+        }
+
+        contextOpenFolder.ShortcutKeyDisplayString = GetShortcutDisplayText(EditorCommandIds.FileOpenFolder);
+        contextOpenFile.ShortcutKeyDisplayString = GetShortcutDisplayText(EditorCommandIds.FileOpen);
+        contextNewFile.ShortcutKeyDisplayString = GetShortcutDisplayText(EditorCommandIds.ExplorerNewFile);
+        contextNewFolder.ShortcutKeyDisplayString = GetShortcutDisplayText(EditorCommandIds.ExplorerNewFolder);
+        contextCopy.ShortcutKeyDisplayString = GetShortcutDisplayText(EditorCommandIds.ExplorerCopy);
+        contextPaste.ShortcutKeyDisplayString = GetShortcutDisplayText(EditorCommandIds.ExplorerPaste);
+        contextRename.ShortcutKeyDisplayString = GetShortcutDisplayText(EditorCommandIds.ExplorerRename);
+        contextDelete.ShortcutKeyDisplayString = GetShortcutDisplayText(EditorCommandIds.ExplorerDelete);
+        contextRefresh.ShortcutKeyDisplayString = GetShortcutDisplayText(EditorCommandIds.ExplorerRefresh);
     }
 
     private TreeNode CreateCommandNode(string text, ExplorerNodeKind kind)
@@ -249,16 +241,10 @@ public partial class MainEditorForm
             return;
         }
 
-        string? firstOpenedFile = null;
         foreach (var filePath in dialog.FileNames.Where(File.Exists))
         {
             AddOpenedFileNode(filePath, beginEdit: false);
-            firstOpenedFile ??= filePath;
-        }
-
-        if (!string.IsNullOrWhiteSpace(firstOpenedFile))
-        {
-            ShowFileInEditorPlaceholder(firstOpenedFile);
+            ShowFileInEditorPlaceholder(filePath);
         }
     }
 
@@ -774,27 +760,14 @@ public partial class MainEditorForm
 
     private void ShowFileInEditorPlaceholder(string? filePath)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || tabEditorHost.TabPages.Count == 0)
-        {
-            return;
-        }
-
-        var firstTab = tabEditorHost.TabPages[0];
-        firstTab.Text = GetDisplayName(filePath);
-        firstTab.ToolTipText = filePath;
-
-        if (editorControlMain is null)
+        if (string.IsNullOrWhiteSpace(filePath))
         {
             return;
         }
 
         try
         {
-            var fileContent = File.ReadAllText(filePath);
-            var normalized = NormalizeEditorNewlines(fileContent);
-            SetEditorSyntaxSource(filePath, normalized);
-            editorControlMain.LoadDocument(new SweetEditor.Document(normalized));
-            editorControlMain.RequestDecorationRefresh();
+            OpenFileInEditorTab(filePath);
             editorControlMain.Focus();
         }
         catch (Exception ex)
@@ -1015,63 +988,63 @@ public partial class MainEditorForm
             return;
         }
 
-        if (e.Control && e.Shift && e.KeyCode == Keys.O)
+        if (IsShortcutTriggered(e, EditorCommandIds.FileOpenFolder))
         {
             OpenFolderFromDialog();
             ConsumeKey(e);
             return;
         }
 
-        if (e.Control && e.Shift && e.KeyCode == Keys.N)
+        if (IsShortcutTriggered(e, EditorCommandIds.ExplorerNewFolder))
         {
             CreateFolder();
             ConsumeKey(e);
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.O)
+        if (IsShortcutTriggered(e, EditorCommandIds.FileOpen))
         {
             OpenFilesFromDialog();
             ConsumeKey(e);
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.N)
+        if (IsShortcutTriggered(e, EditorCommandIds.ExplorerNewFile))
         {
             CreateGeneralFile();
             ConsumeKey(e);
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.C)
+        if (IsShortcutTriggered(e, EditorCommandIds.ExplorerCopy))
         {
             CopySelectedNode();
             ConsumeKey(e);
             return;
         }
 
-        if (e.Control && e.KeyCode == Keys.V)
+        if (IsShortcutTriggered(e, EditorCommandIds.ExplorerPaste))
         {
             PasteIntoSelectedLocation();
             ConsumeKey(e);
             return;
         }
 
-        if (e.KeyCode == Keys.F2)
+        if (IsShortcutTriggered(e, EditorCommandIds.ExplorerRename))
         {
             BeginRenameSelectedNode();
             ConsumeKey(e);
             return;
         }
 
-        if (e.KeyCode == Keys.Delete)
+        if (IsShortcutTriggered(e, EditorCommandIds.ExplorerDelete))
         {
             DeleteSelectedNode();
             ConsumeKey(e);
             return;
         }
 
-        if (e.KeyCode == Keys.F5)
+        if (IsShortcutTriggered(e, EditorCommandIds.ExplorerRefresh))
         {
             RefreshSelectedNode();
             ConsumeKey(e);

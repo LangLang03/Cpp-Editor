@@ -1,0 +1,155 @@
+{
+  "name": "c",
+  "fileExtensions": [".c", ".h"],
+  "variables": {
+    "identifier": "[a-zA-Z_]\\w*",
+    "whiteSpace": "[ \\t\\f]",
+    "any": "[\\S\\s]"
+  },
+  "states": {
+    "default": [
+      {
+        "pattern": "^${whiteSpace}*(#)${whiteSpace}*(include|define|undef|ifdef|ifndef|if|elif|else|endif|pragma|error|warning|line)",
+        "styles": [1, "preprocessor", 2, "preprocessor"]
+      },
+      {
+        "pattern": "(#include)${whiteSpace}+(<)([^>]*)(>)",
+        "styles": [1, "preprocessor", 2, "string", 3, "string", 4, "string"]
+      },
+      {
+        "pattern": "(#define)${whiteSpace}+(${identifier})(\\()",
+        "styles": [1, "preprocessor", 2, "macro", 3, "punctuation"]
+      },
+      {
+        "pattern": "(#define)${whiteSpace}+(${identifier})",
+        "styles": [1, "preprocessor", 2, "macro"]
+      },
+      {
+        "pattern": "\\b[A-Z][A-Z0-9_]{2,}\\b",
+        "style": "macro"
+      },
+      {
+        "pattern": "\\b(typedef)\\b${whiteSpace}+(struct|union|enum)\\b${whiteSpace}+(${identifier})",
+        "styles": [1, "keyword", 2, "keyword", 3, "class"]
+      },
+      {
+        "pattern": "\\b(struct|union|enum)\\b${whiteSpace}+(${identifier})",
+        "styles": [1, "keyword", 2, "class"]
+      },
+      {
+        "pattern": "\\b(void|char|short|int|long|float|double|signed|unsigned|_Bool|size_t|ptrdiff_t|intptr_t|uintptr_t|int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t)\\b(?:${whiteSpace}+([*&]+))?${whiteSpace}+(${identifier})${whiteSpace}*(\\()",
+        "styles": [1, "keyword", 2, "punctuation", 3, "function", 4, "punctuation"],
+        "state": "methodParams"
+      },
+      {
+        "pattern": "\\b(void|char|short|int|long|float|double|signed|unsigned|_Bool|size_t|ptrdiff_t|intptr_t|uintptr_t|int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t)\\b(?:${whiteSpace}+([*&]+))?${whiteSpace}+(${identifier})${whiteSpace}*([;=,)\\[\\]])",
+        "styles": [1, "keyword", 2, "punctuation", 3, "variable", 4, "punctuation"]
+      },
+      {
+        "pattern": "\\b(auto|break|case|const|continue|default|do|else|enum|extern|for|goto|if|inline|register|restrict|return|sizeof|static|struct|switch|typedef|union|volatile|while)\\b",
+        "styles": [1, "keyword"]
+      },
+      {
+        "pattern": "\\b(true|false|NULL|nullptr)\\b",
+        "styles": [1, "builtin"]
+      },
+      {
+        "pattern": "(${identifier})${whiteSpace}*(\\()",
+        "styles": [1, "function", 2, "punctuation"],
+        "state": "methodParams"
+      },
+      {
+        "pattern": "\"(?:[^\"\\\\]|\\\\.)*\"",
+        "style": "string"
+      },
+      {
+        "pattern": "'(?:[^'\\\\]|\\\\.)*'",
+        "style": "string"
+      },
+      {
+        "pattern": "\\b0[xX][0-9a-fA-F]+[uUlL]*\\b",
+        "style": "number"
+      },
+      {
+        "pattern": "\\b0[bB][01]+[uUlL]*\\b",
+        "style": "number"
+      },
+      {
+        "pattern": "\\b(?:[0-9][0-9]*\\.?[0-9]*(?:[eE][+-]?[0-9]+)?[fFlLuU]*)\\b",
+        "style": "number"
+      },
+      {
+        "pattern": "/\\*",
+        "style": "comment",
+        "state": "longComment"
+      },
+      {
+        "pattern": "//${any}*",
+        "style": "comment"
+      },
+      {
+        "pattern": "->|\\+\\+|--|<<|>>|<=|>=|==|!=|&&|\\|\\||[.()\\[\\]?!@%^&|+\\-*/<>=,{};:~]",
+        "style": "punctuation"
+      }
+    ],
+    "methodParams": [
+      {
+        "pattern": "\\)",
+        "style": "punctuation",
+        "state": "default"
+      },
+      {
+        "pattern": "\\b(void|char|short|int|long|float|double|signed|unsigned|_Bool|size_t|ptrdiff_t|intptr_t|uintptr_t|int8_t|int16_t|int32_t|int64_t|uint8_t|uint16_t|uint32_t|uint64_t)\\b",
+        "style": "keyword"
+      },
+      {
+        "pattern": "\\b(const|volatile|restrict|struct|union|enum|register|static)\\b",
+        "style": "keyword"
+      },
+      {
+        "pattern": "${identifier}",
+        "style": "variable"
+      },
+      {
+        "pattern": "\\b0[xX][0-9a-fA-F]+[uUlL]*\\b",
+        "style": "number"
+      },
+      {
+        "pattern": "\\b(?:[0-9][0-9]*\\.?[0-9]*(?:[eE][+-]?[0-9]+)?[fFlLuU]*)\\b",
+        "style": "number"
+      },
+      {
+        "pattern": "\"(?:[^\"\\\\]|\\\\.)*\"",
+        "style": "string"
+      },
+      {
+        "pattern": "'(?:[^'\\\\]|\\\\.)*'",
+        "style": "string"
+      },
+      {
+        "pattern": "[=,\\[\\]*&:.!<>+\\-{}]",
+        "style": "punctuation"
+      },
+      {
+        "onLineEndState": "default"
+      }
+    ],
+    "longComment": [
+      {
+        "pattern": "\\*/",
+        "style": "comment",
+        "state": "default"
+      },
+      {
+        "pattern": "${any}",
+        "style": "comment"
+      }
+    ]
+  },
+  "scopeRules": [
+    {
+      "start": "{",
+      "end": "}"
+    }
+  ]
+}

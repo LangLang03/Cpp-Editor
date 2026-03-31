@@ -6,6 +6,8 @@ public partial class MainEditorForm : Form
     {
         InitializeComponent();
         ApplyLightTheme();
+        InitializeUserSettings();
+        FormClosing += MainEditorForm_FormClosing;
     }
 
     private void ApplyLightTheme()
@@ -21,5 +23,16 @@ public partial class MainEditorForm : Form
             rtbBuildOutput,
             dgvCompileErrors,
             rtbRunOutput);
+    }
+
+    private void MainEditorForm_FormClosing(object? sender, FormClosingEventArgs e)
+    {
+        if (!EnsureCanCloseAllDocuments())
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        PersistUiSettingsFromCurrentState();
     }
 }

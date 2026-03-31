@@ -1,0 +1,116 @@
+{
+  "name": "xml",
+  "fileExtensions": [".xml", ".xsd", ".xsl", ".xslt", ".svg", ".plist", ".props", ".targets", ".config", ".csproj", ".vbproj"],
+  "variables": {
+    "identifier": "[A-Za-z_][A-Za-z0-9_.:-]*",
+    "whiteSpace": "[ \\t\\f]",
+    "any": "[\\S\\s]"
+  },
+  "states": {
+    "default": [
+      {
+        "pattern": "<!--",
+        "style": "comment",
+        "state": "longComment"
+      },
+      {
+        "pattern": "<!\\[CDATA\\[",
+        "style": "string",
+        "state": "cdata"
+      },
+      {
+        "pattern": "(<\\?)(xml|${identifier})",
+        "styles": [1, "preprocessor", 2, "preprocessor"],
+        "state": "processingInstruction"
+      },
+      {
+        "pattern": "(</?)(${identifier})",
+        "styles": [1, "punctuation", 2, "class"],
+        "state": "tag"
+      },
+      {
+        "pattern": "<![^>]*>",
+        "style": "preprocessor"
+      },
+      {
+        "pattern": "(&#?[A-Za-z0-9]+;)",
+        "style": "builtin"
+      }
+    ],
+    "tag": [
+      {
+        "pattern": "(/?>)",
+        "style": "punctuation",
+        "state": "default"
+      },
+      {
+        "pattern": "(${identifier})(${whiteSpace}*=)",
+        "styles": [1, "annotation", 2, "punctuation"]
+      },
+      {
+        "pattern": "\"(?:[^\"\\\\]|\\\\.)*\"",
+        "style": "string"
+      },
+      {
+        "pattern": "'(?:[^'\\\\]|\\\\.)*'",
+        "style": "string"
+      },
+      {
+        "pattern": "\\b(?:[0-9][0-9]*\\.?[0-9]*)\\b",
+        "style": "number"
+      },
+      {
+        "pattern": "\\b(true|false)\\b",
+        "style": "builtin"
+      },
+      {
+        "onLineEndState": "tag"
+      }
+    ],
+    "processingInstruction": [
+      {
+        "pattern": "\\?>",
+        "style": "preprocessor",
+        "state": "default"
+      },
+      {
+        "pattern": "(${identifier})(${whiteSpace}*=)",
+        "styles": [1, "annotation", 2, "punctuation"]
+      },
+      {
+        "pattern": "\"(?:[^\"\\\\]|\\\\.)*\"",
+        "style": "string"
+      },
+      {
+        "pattern": "'(?:[^'\\\\]|\\\\.)*'",
+        "style": "string"
+      },
+      {
+        "pattern": "${any}",
+        "style": "preprocessor"
+      }
+    ],
+    "longComment": [
+      {
+        "pattern": "-->",
+        "style": "comment",
+        "state": "default"
+      },
+      {
+        "pattern": "${any}",
+        "style": "comment"
+      }
+    ],
+    "cdata": [
+      {
+        "pattern": "\\]\\]>",
+        "style": "string",
+        "state": "default"
+      },
+      {
+        "pattern": "${any}",
+        "style": "string"
+      }
+    ]
+  }
+}

@@ -186,30 +186,12 @@ internal sealed class EditorSyntaxHighlightProvider : SweetEditor.IDecorationPro
 
     private static string BuildAnalysisUri(string fileName)
     {
-        var normalizedFileName = NormalizeFileNameForSyntax(fileName);
-
-        if (Path.IsPathRooted(normalizedFileName))
+        if (Path.IsPathRooted(fileName))
         {
-            return new Uri(normalizedFileName).AbsoluteUri;
+            return new Uri(fileName).AbsoluteUri;
         }
 
-        return $"file:///{normalizedFileName}";
-    }
-
-    private static string NormalizeFileNameForSyntax(string fileName)
-    {
-        var extension = Path.GetExtension(fileName);
-        if (string.Equals(extension, ".h", StringComparison.OrdinalIgnoreCase))
-        {
-            return Path.ChangeExtension(fileName, ".hpp");
-        }
-
-        if (string.Equals(extension, ".c", StringComparison.OrdinalIgnoreCase))
-        {
-            return Path.ChangeExtension(fileName, ".cpp");
-        }
-
-        return fileName;
+        return $"file:///{fileName}";
     }
 
     private static SweetLineTextRange ConvertToSweetLineTextRange(EditorTextRange range)

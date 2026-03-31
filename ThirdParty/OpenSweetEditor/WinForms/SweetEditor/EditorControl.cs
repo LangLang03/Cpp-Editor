@@ -454,6 +454,8 @@ namespace SweetEditor {
 		private NewLineActionProviderManager? newLineActionProviderManager;
 		private int lastMeasureDpi;
 		private LanguageConfiguration? languageConfiguration;
+		private readonly Dictionary<char, char> autoClosingPairs = new();
+		private readonly HashSet<char> autoClosingCloseChars = new();
 		/// <summary>
 		/// Custom editor metadata attached by host code.
 		/// Cast to the concrete metadata subtype when reading it.
@@ -533,6 +535,7 @@ namespace SweetEditor {
 		/// <summary>Sets language configuration.</summary>
 		public void SetLanguageConfiguration(LanguageConfiguration? config) {
 			languageConfiguration = config;
+			RebuildAutoClosingPairs(config);
 			if (config != null) {
 				if (config.Brackets.Count > 0) {
 					int[] opens = new int[config.Brackets.Count];
@@ -546,6 +549,27 @@ namespace SweetEditor {
 				if (config.TabSize.HasValue && config.TabSize.Value > 0) {
 					editorCore.SetTabSize(config.TabSize.Value);
 				}
+			}
+		}
+
+		private void RebuildAutoClosingPairs(LanguageConfiguration? config) {
+			autoClosingPairs.Clear();
+			autoClosingCloseChars.Clear();
+			if (config == null || config.AutoClosingPairs.Count == 0) {
+				return;
+			}
+
+			foreach (var pair in config.AutoClosingPairs) {
+				if (string.IsNullOrEmpty(pair.Open) || string.IsNullOrEmpty(pair.Close)) {
+					continue;
+				}
+
+				char open = pair.Open[0];
+				char close = pair.Close[0];
+				if (!autoClosingPairs.ContainsKey(open)) {
+					autoClosingPairs.Add(open, close);
+				}
+				autoClosingCloseChars.Add(close);
 			}
 		}
 
@@ -1093,8 +1117,20 @@ namespace SweetEditor {
 		}
 
 		protected override bool IsInputKey(Keys keyData) {
+			Keys keyCode = keyData & Keys.KeyCode;
+			if (keyCode == Keys.Tab ||
+				keyCode == Keys.Left ||
+				keyCode == Keys.Right ||
+				keyCode == Keys.Up ||
+				keyCode == Keys.Down ||
+				keyCode == Keys.Home ||
+				keyCode == Keys.End ||
+				keyCode == Keys.PageUp ||
+				keyCode == Keys.PageDown) {
+				return true;
+			}
+
 			if (completionPopupController != null && completionPopupController.IsShowing) {
-				Keys keyCode = keyData & Keys.KeyCode;
 				if (keyCode == Keys.Up || keyCode == Keys.Down || keyCode == Keys.Enter || keyCode == Keys.Escape) {
 					return true;
 				}
@@ -1180,6 +1216,12 @@ namespace SweetEditor {
 			}
 
 			if (!char.IsControl(e.KeyChar)) {
+				if (TryHandleAutoClosingKeyPress(e.KeyChar)) {
+					e.Handled = true;
+					base.OnKeyPress(e);
+					return;
+				}
+
 				var result = editorCore.InsertText(e.KeyChar.ToString());
 				e.Handled = true;
 				FireTextChanged(TextChangeAction.Key, result);
@@ -1199,6 +1241,69 @@ namespace SweetEditor {
 				Flush();
 			}
 			base.OnKeyPress(e);
+		}
+
+		private bool TryHandleAutoClosingKeyPress(char keyChar) {
+			if (autoClosingPairs.Count == 0 || settings?.IsReadOnly() == true) {
+				return false;
+			}
+
+			var selection = editorCore.GetSelection();
+			if (autoClosingPairs.TryGetValue(keyChar, out char closeChar)) {
+				// Symmetric pairs (for example "") should skip existing closer instead of nesting endlessly.
+				if (!selection.hasSelection && keyChar == closeChar && ShouldSkipExistingCloser(keyChar)) {
+					var current = editorCore.GetCursorPosition();
+					editorCore.SetCursorPosition(new TextPosition { Line = current.Line, Column = current.Column + 1 });
+					CursorChanged?.Invoke(this, new CursorChangedEventArgs(editorCore.GetCursorPosition()));
+					Flush();
+					return true;
+				}
+
+				if (selection.hasSelection) {
+					string selectedText = editorCore.GetSelectedText();
+					var wrapResult = editorCore.ReplaceText(selection.range, $"{keyChar}{selectedText}{closeChar}");
+					FireTextChanged(TextChangeAction.Key, wrapResult);
+					Flush();
+					return true;
+				}
+
+				var pairResult = editorCore.InsertText($"{keyChar}{closeChar}");
+				FireTextChanged(TextChangeAction.Key, pairResult);
+				var cursor = editorCore.GetCursorPosition();
+				if (cursor.Column > 0) {
+					editorCore.SetCursorPosition(new TextPosition { Line = cursor.Line, Column = cursor.Column - 1 });
+					CursorChanged?.Invoke(this, new CursorChangedEventArgs(editorCore.GetCursorPosition()));
+				}
+				Flush();
+				return true;
+			}
+
+			if (!selection.hasSelection && autoClosingCloseChars.Contains(keyChar) && ShouldSkipExistingCloser(keyChar)) {
+				var cursor = editorCore.GetCursorPosition();
+				editorCore.SetCursorPosition(new TextPosition { Line = cursor.Line, Column = cursor.Column + 1 });
+				CursorChanged?.Invoke(this, new CursorChangedEventArgs(editorCore.GetCursorPosition()));
+				Flush();
+				return true;
+			}
+
+			return false;
+		}
+
+		private bool ShouldSkipExistingCloser(char closeChar) {
+			var document = editorCore.GetDocument();
+			if (document == null) {
+				return false;
+			}
+
+			var cursor = editorCore.GetCursorPosition();
+			if (cursor.Line < 0 || cursor.Line >= document.GetLineCount()) {
+				return false;
+			}
+
+			string lineText = document.GetLineText(cursor.Line);
+			return cursor.Column >= 0 &&
+				   cursor.Column < lineText.Length &&
+				   lineText[cursor.Column] == closeChar;
 		}
 
 		protected override void WndProc(ref Message m) {

@@ -3,7 +3,7 @@ namespace C__Editor;
 public partial class MainEditorForm
 {
     private const int ExplorerPanelMinWidth = 180;
-    private const int ExplorerPanelMaxWidth = 300;
+    private const int ExplorerPanelMaxWidth = 420;
     private bool hasAppliedInitialExplorerWidth;
 
     private System.ComponentModel.IContainer? components;
@@ -64,6 +64,7 @@ public partial class MainEditorForm
         splitWorkspace.Name = "splitWorkspace";
         splitWorkspace.Panel1MinSize = ExplorerPanelMinWidth;
         splitWorkspace.TabIndex = 0;
+        splitWorkspace.SplitterMoved += SplitWorkspace_SplitterMoved;
 
         splitWorkspace.Panel1.Controls.Add(treeProject);
         splitWorkspace.Panel2.Controls.Add(tabEditorHost);
@@ -104,6 +105,20 @@ public partial class MainEditorForm
         }
 
         hasAppliedInitialExplorerWidth = true;
-        splitWorkspace.SplitterDistance = Math.Clamp((int)(splitWorkspace.Width * 0.16), ExplorerPanelMinWidth, ExplorerPanelMaxWidth);
+        if (!splitWorkspace.Panel1Collapsed)
+        {
+            splitWorkspace.SplitterDistance = Math.Clamp(uiSettings.ExplorerWidth, ExplorerPanelMinWidth, 420);
+        }
+    }
+
+    private void SplitWorkspace_SplitterMoved(object? sender, SplitterEventArgs e)
+    {
+        if (splitWorkspace.Panel1Collapsed)
+        {
+            return;
+        }
+
+        uiSettings.ExplorerWidth = Math.Clamp(splitWorkspace.SplitterDistance, ExplorerPanelMinWidth, 420);
+        PersistUiSettingsFromCurrentState();
     }
 }
