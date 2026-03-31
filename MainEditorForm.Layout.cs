@@ -12,6 +12,7 @@ public partial class MainEditorForm
     private SplitContainer splitWorkspace = null!;
     private TreeView treeProject = null!;
     private TabControl tabEditorHost = null!;
+    private SweetEditor.EditorControl editorControlMain = null!;
     private TabControl tabBottom = null!;
     private RichTextBox rtbBuildOutput = null!;
     private DataGridView dgvCompileErrors = null!;

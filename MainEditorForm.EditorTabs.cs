@@ -20,26 +20,46 @@ public partial class MainEditorForm
             UseVisualStyleBackColor = true
         };
 
-        var placeholderPanel = new Panel
-        {
-            Name = "panelEditorPlaceholder",
-            Dock = DockStyle.Fill
-        };
-
-        var placeholderLabel = new Label
-        {
-            Name = "lblEditorPlaceholder",
-            Dock = DockStyle.Fill,
-            Font = new Font("Microsoft YaHei UI", 13.8F, FontStyle.Regular, GraphicsUnit.Point, 134),
-            ForeColor = SystemColors.ControlDarkDark,
-            Text = "\u4EE3\u7801\u7F16\u8F91\u533A\u57DF\uFF08\u5F85\u5B9E\u73B0\uFF09",
-            TextAlign = ContentAlignment.MiddleCenter
-        };
-
-        placeholderPanel.Controls.Add(placeholderLabel);
-        editorPage.Controls.Add(placeholderPanel);
+        Control editorHostControl = BuildEditorControlHost();
+        editorPage.Controls.Add(editorHostControl);
         editorTabs.Controls.Add(editorPage);
 
         return editorTabs;
+    }
+
+    private Control BuildEditorControlHost()
+    {
+        try
+        {
+            editorControlMain = new SweetEditor.EditorControl
+            {
+                Dock = DockStyle.Fill,
+                Name = "editorControlMain",
+                Font = new Font("Consolas", 11F, FontStyle.Regular, GraphicsUnit.Point, 0),
+                TabIndex = 0
+            };
+
+            EditorThemeController.ApplyLightTheme(editorControlMain);
+            InitializeSyntaxHighlighting();
+            const string initialFileName = "untitled.cpp";
+            var initialText = NormalizeEditorNewlines("// Ready\n");
+            SetEditorSyntaxSource(initialFileName, initialText);
+            editorControlMain.LoadDocument(new SweetEditor.Document(initialText));
+            editorControlMain.RequestDecorationRefresh();
+            return editorControlMain;
+        }
+        catch (Exception ex)
+        {
+            var fallbackLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("Microsoft YaHei UI", 11F, FontStyle.Regular, GraphicsUnit.Point, 134),
+                ForeColor = Color.DarkRed,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Text = "\u7F16\u8F91\u5668\u52A0\u8F7D\u5931\u8D25\r\n" + ex.Message
+            };
+
+            return fallbackLabel;
+        }
     }
 }

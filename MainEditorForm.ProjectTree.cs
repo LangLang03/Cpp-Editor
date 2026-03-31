@@ -249,9 +249,16 @@ public partial class MainEditorForm
             return;
         }
 
+        string? firstOpenedFile = null;
         foreach (var filePath in dialog.FileNames.Where(File.Exists))
         {
             AddOpenedFileNode(filePath, beginEdit: false);
+            firstOpenedFile ??= filePath;
+        }
+
+        if (!string.IsNullOrWhiteSpace(firstOpenedFile))
+        {
+            ShowFileInEditorPlaceholder(firstOpenedFile);
         }
     }
 
@@ -775,6 +782,30 @@ public partial class MainEditorForm
         var firstTab = tabEditorHost.TabPages[0];
         firstTab.Text = GetDisplayName(filePath);
         firstTab.ToolTipText = filePath;
+
+        if (editorControlMain is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var fileContent = File.ReadAllText(filePath);
+            var normalized = NormalizeEditorNewlines(fileContent);
+            SetEditorSyntaxSource(filePath, normalized);
+            editorControlMain.LoadDocument(new SweetEditor.Document(normalized));
+            editorControlMain.RequestDecorationRefresh();
+            editorControlMain.Focus();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "\u6253\u5F00\u6587\u4EF6\u5931\u8D25", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private static string NormalizeEditorNewlines(string text)
+    {
+        return text.Replace("\r\n", "\n").Replace('\r', '\n');
     }
 
     private void ProjectTreeContextMenu_Opening(object? sender, System.ComponentModel.CancelEventArgs e)

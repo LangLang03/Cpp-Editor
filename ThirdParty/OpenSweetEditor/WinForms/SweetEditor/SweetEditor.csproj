@@ -1,0 +1,33 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<TargetFramework>net8.0-windows</TargetFramework>
+		<Nullable>enable</Nullable>
+		<UseWindowsForms>True</UseWindowsForms>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+		<AssemblyName>$(MSBuildProjectName).Net</AssemblyName>
+		<PackageId>SweetEditor</PackageId>
+		<Title>SweetEditor</Title>
+		<Authors>Scave</Authors>
+		<Company>Mobile-IPE</Company>
+		<Product>SweetEditor</Product>
+		<Version>1.0.3</Version>
+		<Description>Cross-platform code editor core for WinForms, powered by SweetEditor C++.</Description>
+		<PackageProjectUrl>https://github.com/FinalScave/OpenSweetEditor</PackageProjectUrl>
+		<RepositoryUrl>https://github.com/FinalScave/OpenSweetEditor.git</RepositoryUrl>
+		<RepositoryType>git</RepositoryType>
+		<PackageTags>editor;code-editor;winforms;syntax-highlighting;cpp;ide-editor</PackageTags>
+		<PackageReadmeFile>README.md</PackageReadmeFile>
+	</PropertyGroup>
+	
+	<ItemGroup>
+		<None Include="README.md" Pack="true" PackagePath="\" />
+		<Content Include="..\..\..\cmake-build-release-visual-studio\bin\sweeteditor.dll" Pack="true" PackagePath="runtimes\win-x64\native\">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+	</ItemGroup>
+
+</Project>
