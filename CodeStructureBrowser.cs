@@ -374,7 +374,8 @@ internal sealed class CodeStructureSettingsForm : Form
             Text = "确定",
             DialogResult = DialogResult.OK,
             Width = 80,
-            Height = 28
+            Height = 28,
+            Margin = new Padding(0, 0, 8, 0)
         };
 
         var btnCancel = new Button
@@ -383,7 +384,7 @@ internal sealed class CodeStructureSettingsForm : Form
             DialogResult = DialogResult.Cancel,
             Width = 80,
             Height = 28,
-            Margin = new Padding(0, 0, 8, 0)
+            Margin = new Padding(0, 0, 0, 0)
         };
 
         buttonPanel.Controls.Add(btnCancel);
