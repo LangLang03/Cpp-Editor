@@ -5,7 +5,7 @@ namespace C__Editor;
 
 internal static class EditorConfigurationController
 {
-    private const int CurrentVersion = 8;
+    private const int CurrentVersion = 9;
     private const string DefaultAutoPairFormat = "<>{}()";
     private static readonly object SyncRoot = new();
 
@@ -137,6 +137,60 @@ internal static class EditorConfigurationController
         {
             var config = GetConfigClone();
             config.CppTemplates = settings?.Clone() ?? CppTemplateSettingsConfig.CreateDefault();
+            SaveNormalized(config);
+        }
+    }
+
+    internal static BuildConfigurationSettings GetBuildConfigurationSettings()
+    {
+        lock (SyncRoot)
+        {
+            return GetConfigClone().BuildConfiguration.Clone();
+        }
+    }
+
+    internal static void SaveBuildConfigurationSettings(BuildConfigurationSettings settings)
+    {
+        lock (SyncRoot)
+        {
+            var config = GetConfigClone();
+            config.BuildConfiguration = settings?.Clone() ?? BuildConfigurationSettings.CreateDefault();
+            SaveNormalized(config);
+        }
+    }
+
+    internal static CodeSnippetSettings GetCodeSnippetSettings()
+    {
+        lock (SyncRoot)
+        {
+            return GetConfigClone().CodeSnippets.Clone();
+        }
+    }
+
+    internal static void SaveCodeSnippetSettings(CodeSnippetSettings settings)
+    {
+        lock (SyncRoot)
+        {
+            var config = GetConfigClone();
+            config.CodeSnippets = settings?.Clone() ?? CodeSnippetSettings.CreateDefault();
+            SaveNormalized(config);
+        }
+    }
+
+    internal static CodeStructureSettings GetCodeStructureSettings()
+    {
+        lock (SyncRoot)
+        {
+            return GetConfigClone().CodeStructure.Clone();
+        }
+    }
+
+    internal static void SaveCodeStructureSettings(CodeStructureSettings settings)
+    {
+        lock (SyncRoot)
+        {
+            var config = GetConfigClone();
+            config.CodeStructure = settings?.Clone() ?? CodeStructureSettings.CreateDefault();
             SaveNormalized(config);
         }
     }
@@ -280,6 +334,30 @@ internal static class EditorConfigurationController
         }
 
         normalized.CppTemplates = normalizedCppTemplates;
+
+        var normalizedBuildConfig = NormalizeBuildConfigurationSection(normalized.BuildConfiguration);
+        if (!BuildConfigurationSectionEquals(normalized.BuildConfiguration, normalizedBuildConfig))
+        {
+            shouldSave = true;
+        }
+
+        normalized.BuildConfiguration = normalizedBuildConfig;
+
+        var normalizedCodeSnippets = NormalizeCodeSnippetSection(normalized.CodeSnippets);
+        if (!CodeSnippetSectionEquals(normalized.CodeSnippets, normalizedCodeSnippets))
+        {
+            shouldSave = true;
+        }
+
+        normalized.CodeSnippets = normalizedCodeSnippets;
+
+        var normalizedCodeStructure = NormalizeCodeStructureSection(normalized.CodeStructure);
+        if (!CodeStructureSectionEquals(normalized.CodeStructure, normalizedCodeStructure))
+        {
+            shouldSave = true;
+        }
+
+        normalized.CodeStructure = normalizedCodeStructure;
 
         return (normalized, shouldSave);
     }
@@ -650,6 +728,109 @@ internal static class EditorConfigurationController
                string.Equals(left.OtherFileTemplate, right.OtherFileTemplate, StringComparison.Ordinal);
     }
 
+    private static BuildConfigurationSettings NormalizeBuildConfigurationSection(BuildConfigurationSettings? section)
+    {
+        var input = section ?? BuildConfigurationSettings.CreateDefault();
+        
+        // Ensure all toolchains have entries
+        var debugArgs = input.DebugArgumentsByToolchain ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var releaseArgs = input.ReleaseArgumentsByToolchain ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        
+        foreach (var item in ToolchainCatalog.GetItems())
+        {
+            var key = ToolchainCatalog.ToConfigValue(item.Id);
+            if (!debugArgs.ContainsKey(key))
+            {
+                debugArgs[key] = GetDefaultDebugArgsForToolchain(item.Id);
+            }
+            if (!releaseArgs.ContainsKey(key))
+            {
+                releaseArgs[key] = GetDefaultReleaseArgsForToolchain(item.Id);
+            }
+        }
+        
+        return new BuildConfigurationSettings
+        {
+            Configuration = input.Configuration,
+            CustomConfigurationName = input.CustomConfigurationName ?? string.Empty,
+            DebugArgumentsByToolchain = debugArgs,
+            ReleaseArgumentsByToolchain = releaseArgs,
+            CustomConfigurations = input.CustomConfigurations ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        };
+    }
+
+    private static string GetDefaultDebugArgsForToolchain(ToolchainId toolchainId)
+    {
+        return ToolchainCatalog.GetItem(toolchainId).Family == ToolchainFamily.Msvc
+            ? "/std:c++17 /EHsc /Zi /nologo /Od /MDd"
+            : "-std=c++17 -g -O0 -Wall";
+    }
+
+    private static string GetDefaultReleaseArgsForToolchain(ToolchainId toolchainId)
+    {
+        return ToolchainCatalog.GetItem(toolchainId).Family == ToolchainFamily.Msvc
+            ? "/std:c++17 /EHsc /nologo /O2 /MD"
+            : "-std=c++17 -O2 -Wall -DNDEBUG";
+    }
+
+    private static bool BuildConfigurationSectionEquals(BuildConfigurationSettings? left, BuildConfigurationSettings right)
+    {
+        if (left is null)
+        {
+            return false;
+        }
+
+        return left.Configuration == right.Configuration &&
+               string.Equals(left.CustomConfigurationName, right.CustomConfigurationName, StringComparison.Ordinal);
+    }
+
+    private static CodeSnippetSettings NormalizeCodeSnippetSection(CodeSnippetSettings? section)
+    {
+        var input = section ?? CodeSnippetSettings.CreateDefault();
+        return new CodeSnippetSettings
+        {
+            CustomSnippets = input.CustomSnippets ?? new List<CodeSnippet>(),
+            EnableShortcutExpansion = input.EnableShortcutExpansion
+        };
+    }
+
+    private static bool CodeSnippetSectionEquals(CodeSnippetSettings? left, CodeSnippetSettings right)
+    {
+        if (left is null)
+        {
+            return false;
+        }
+
+        return left.EnableShortcutExpansion == right.EnableShortcutExpansion;
+    }
+
+    private static CodeStructureSettings NormalizeCodeStructureSection(CodeStructureSettings? section)
+    {
+        var input = section ?? CodeStructureSettings.CreateDefault();
+        return new CodeStructureSettings
+        {
+            ShowIncludes = input.ShowIncludes,
+            ShowMacros = input.ShowMacros,
+            ShowVariables = input.ShowVariables,
+            SortAlphabetically = input.SortAlphabetically,
+            AutoRefresh = input.AutoRefresh
+        };
+    }
+
+    private static bool CodeStructureSectionEquals(CodeStructureSettings? left, CodeStructureSettings right)
+    {
+        if (left is null)
+        {
+            return false;
+        }
+
+        return left.ShowIncludes == right.ShowIncludes &&
+               left.ShowMacros == right.ShowMacros &&
+               left.ShowVariables == right.ShowVariables &&
+               left.SortAlphabetically == right.SortAlphabetically &&
+               left.AutoRefresh == right.AutoRefresh;
+    }
+
     private static bool TryReadConfig(string path, out EditorAppConfig? config)
     {
         config = TryReadConfig<EditorAppConfig>(path);
@@ -734,7 +915,7 @@ internal static class EditorConfigurationController
 
 internal sealed class EditorAppConfig
 {
-    public int ConfigVersion { get; set; } = 8;
+    public int ConfigVersion { get; set; } = 9;
 
     public UiSettings Ui { get; set; } = new();
 
@@ -748,6 +929,12 @@ internal sealed class EditorAppConfig
 
     public CppTemplateSettingsConfig CppTemplates { get; set; } = CppTemplateSettingsConfig.CreateDefault();
 
+    public BuildConfigurationSettings BuildConfiguration { get; set; } = BuildConfigurationSettings.CreateDefault();
+
+    public CodeSnippetSettings CodeSnippets { get; set; } = CodeSnippetSettings.CreateDefault();
+
+    public CodeStructureSettings CodeStructure { get; set; } = CodeStructureSettings.CreateDefault();
+
     internal EditorAppConfig Clone()
     {
         return new EditorAppConfig
@@ -758,7 +945,10 @@ internal sealed class EditorAppConfig
             Shortcuts = Shortcuts?.Clone() ?? new ShortcutSettingsSection(),
             Toolchain = Toolchain?.Clone() ?? ToolchainSettingsConfig.CreateDefault(),
             Explorer = Explorer?.Clone() ?? new ExplorerSettingsConfig(),
-            CppTemplates = CppTemplates?.Clone() ?? CppTemplateSettingsConfig.CreateDefault()
+            CppTemplates = CppTemplates?.Clone() ?? CppTemplateSettingsConfig.CreateDefault(),
+            BuildConfiguration = BuildConfiguration?.Clone() ?? BuildConfigurationSettings.CreateDefault(),
+            CodeSnippets = CodeSnippets?.Clone() ?? CodeSnippetSettings.CreateDefault(),
+            CodeStructure = CodeStructure?.Clone() ?? CodeStructureSettings.CreateDefault()
         };
     }
 }

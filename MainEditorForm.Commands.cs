@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 
 namespace C__Editor;
 
@@ -627,5 +627,74 @@ public partial class MainEditorForm
             Line = line,
             Column = column
         };
+    }
+
+    private void GoToLineInEditor(int lineNumber, int columnNumber = 0)
+    {
+        if (editorControlMain is null)
+        {
+            return;
+        }
+
+        editorControlMain.GotoPosition(lineNumber - 1, columnNumber);
+        editorControlMain.Focus();
+    }
+
+    private void ToggleCodeStructurePanel(bool visible)
+    {
+        splitEditor.Panel2Collapsed = !visible;
+    }
+
+    private void ShowCodeSnippetDialog()
+    {
+        using var dialog = new CodeSnippetDialog();
+        if (dialog.ShowDialog(this) == DialogResult.OK && dialog.SelectedSnippet is not null)
+        {
+            InsertCodeSnippet(dialog.SelectedSnippet);
+        }
+    }
+
+    private void InsertCodeSnippet(CodeSnippet snippet)
+    {
+        if (editorControlMain is null)
+        {
+            return;
+        }
+
+        var code = CodeSnippetInsertService.ExpandSnippet(snippet.Code);
+        var cursorPos = CodeSnippetInsertService.FindCursorPosition(code);
+        
+        // Remove cursor markers from code
+        code = code.Replace("${cursor}", "").Replace("$cursor", "").Replace("|", "").Replace("<|>", "");
+        
+        editorControlMain.InsertText(code);
+        
+        // Position cursor
+        if (cursorPos >= 0 && cursorPos < code.Length)
+        {
+            // Calculate line and column from cursor position
+            var lines = code.Substring(0, cursorPos).Split('\n');
+            var line = lines.Length - 1;
+            var column = lines[^1].Length;
+            
+            // Get current position and add offset
+            editorControlMain.GotoPosition(line, column);
+        }
+        
+        editorControlMain.Focus();
+    }
+
+    private BuildConfigurationSettings buildConfigurationSettings = BuildConfigurationSettings.CreateDefault();
+
+    private void SetBuildConfiguration(BuildConfiguration configuration)
+    {
+        buildConfigurationSettings.Configuration = configuration;
+        EditorConfigurationController.SaveBuildConfigurationSettings(buildConfigurationSettings);
+        
+        // Update menu check states
+        menuBuildConfigDebug.Checked = configuration == BuildConfiguration.Debug;
+        menuBuildConfigRelease.Checked = configuration == BuildConfiguration.Release;
+        
+        AppendBuildOutput($"构建配置已切换为: {configuration}");
     }
 }

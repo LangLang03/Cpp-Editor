@@ -226,6 +226,9 @@ public partial class MainEditorForm
         {
             isLoadingEditorDocument = false;
         }
+
+        // Update code structure browser when tab is activated
+        UpdateCodeStructureBrowser();
     }
 
     private TabPage? FindTabByFilePath(string filePath)
@@ -422,6 +425,25 @@ public partial class MainEditorForm
     private void TabEditorHost_SelectedIndexChanged(object? sender, EventArgs e)
     {
         ActivateDocumentTab(tabEditorHost.SelectedTab);
+        UpdateCodeStructureBrowser();
+    }
+
+    private void UpdateCodeStructureBrowser()
+    {
+        if (codeStructureBrowser is null)
+        {
+            return;
+        }
+
+        var state = GetSelectedDocumentState();
+        if (state?.FilePath is not null && File.Exists(state.FilePath))
+        {
+            codeStructureBrowser.LoadFile(state.FilePath);
+        }
+        else
+        {
+            codeStructureBrowser.Clear();
+        }
     }
 
     private void TabEditorHost_MouseDown(object? sender, MouseEventArgs e)

@@ -55,7 +55,7 @@ internal sealed class ToolchainSettingsForm : Form
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220f));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 230f));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 310f));
         grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));

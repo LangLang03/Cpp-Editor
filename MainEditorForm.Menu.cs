@@ -30,6 +30,9 @@ public partial class MainEditorForm
     private ToolStripMenuItem menuBuildCompile = null!;
     private ToolStripMenuItem menuBuildRebuild = null!;
     private ToolStripMenuItem menuBuildRun = null!;
+    private ToolStripMenuItem menuBuildConfiguration = null!;
+    private ToolStripMenuItem menuBuildConfigDebug = null!;
+    private ToolStripMenuItem menuBuildConfigRelease = null!;
 
     private ToolStripMenuItem menuDebugStart = null!;
     private ToolStripMenuItem menuDebugStepOver = null!;
@@ -148,6 +151,11 @@ public partial class MainEditorForm
         menuViewOutputWindow.CheckedChanged += (_, _) => ToggleOutputPanel(menuViewOutputWindow.Checked);
         RegisterMenuShortcut(EditorCommandIds.ViewToggleOutputWindow, menuViewOutputWindow);
 
+        var menuViewCodeStructure = CreateLeaf("menuViewCodeStructure", "显示代码结构");
+        menuViewCodeStructure.CheckOnClick = true;
+        menuViewCodeStructure.Checked = true;
+        menuViewCodeStructure.CheckedChanged += (_, _) => ToggleCodeStructurePanel(menuViewCodeStructure.Checked);
+
         menuViewResetLayout = CreateLeaf("menuViewResetLayout", "重置布局");
         menuViewResetLayout.Click += (_, _) => ResetMainLayout();
         RegisterMenuShortcut(EditorCommandIds.ViewResetLayout, menuViewResetLayout);
@@ -159,6 +167,7 @@ public partial class MainEditorForm
         var menuView = CreateMenu("menuView", "视图",
             menuViewProjectTree,
             menuViewOutputWindow,
+            menuViewCodeStructure,
             new ToolStripSeparator(),
             menuViewResetLayout,
             new ToolStripSeparator(),
@@ -199,11 +208,32 @@ public partial class MainEditorForm
         menuBuildRun.Click += (_, _) => ExecuteBuildCommand(EditorCommandIds.BuildRun);
         RegisterMenuShortcut(EditorCommandIds.BuildRun, menuBuildRun);
 
+        // Build Configuration submenu
+        menuBuildConfigDebug = CreateLeaf("menuBuildConfigDebug", "Debug");
+        menuBuildConfigDebug.CheckOnClick = true;
+        menuBuildConfigDebug.Checked = true;
+        menuBuildConfigDebug.Click += (_, _) => SetBuildConfiguration(BuildConfiguration.Debug);
+
+        menuBuildConfigRelease = CreateLeaf("menuBuildConfigRelease", "Release");
+        menuBuildConfigRelease.CheckOnClick = true;
+        menuBuildConfigRelease.Checked = false;
+        menuBuildConfigRelease.Click += (_, _) => SetBuildConfiguration(BuildConfiguration.Release);
+
+        menuBuildConfiguration = CreateMenu("menuBuildConfiguration", "构建配置",
+            menuBuildConfigDebug,
+            menuBuildConfigRelease);
+
+        var menuInsertSnippet = CreateLeaf("menuInsertSnippet", "插入代码片段...");
+        menuInsertSnippet.Click += (_, _) => ShowCodeSnippetDialog();
+        RegisterMenuShortcut(EditorCommandIds.EditInsertSnippet, menuInsertSnippet);
+
         var menuBuild = CreateMenu("menuBuild", "编译",
             menuBuildCompile,
             menuBuildRebuild,
             new ToolStripSeparator(),
-            menuBuildRun);
+            menuBuildRun,
+            new ToolStripSeparator(),
+            menuBuildConfiguration);
 
         menuDebugStart = CreateLeaf("menuDebugStart", "开始调试");
         menuDebugStart.Click += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStart);

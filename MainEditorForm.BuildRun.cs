@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -278,8 +278,11 @@ public partial class MainEditorForm
             return false;
         }
 
-        var compilerArguments = BuildCompilerArguments(compileSources, outputExecutablePath, resolvedToolchain);
+        // Use build configuration specific arguments
+        var buildConfigArgs = buildConfigurationSettings.GetArgumentsForCurrentConfig(resolvedToolchain.Id);
+        var compilerArguments = BuildCompilerArguments(compileSources, outputExecutablePath, resolvedToolchain, buildConfigArgs);
         AppendBuildOutput(resolveDetail);
+        AppendBuildOutput($"构建配置: {buildConfigurationSettings.Configuration}");
         if (resolvedToolchain.Family == ToolchainFamily.Msvc &&
             string.IsNullOrWhiteSpace(resolvedToolchain.SetupScriptPath))
         {
@@ -527,13 +530,17 @@ public partial class MainEditorForm
     private static IReadOnlyList<string> BuildCompilerArguments(
         IReadOnlyList<string> sourceFilePaths,
         string outputExecutablePath,
-        ResolvedToolchainContext toolchainContext)
+        ResolvedToolchainContext toolchainContext,
+        string? customArguments = null)
     {
         var builder = CompilerCommandBuilderFactory.Get(toolchainContext.Family);
+        var arguments = !string.IsNullOrWhiteSpace(customArguments)
+            ? customArguments
+            : toolchainContext.CompilerArguments;
         return builder.BuildArguments(
             sourceFilePaths,
             outputExecutablePath,
-            toolchainContext.CompilerArguments);
+            arguments);
     }
 
     private static string BuildDisplayArguments(IReadOnlyList<string> arguments)

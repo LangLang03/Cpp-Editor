@@ -5,10 +5,31 @@ public partial class MainEditorForm : Form
     public MainEditorForm()
     {
         InitializeComponent();
+        LoadAdditionalSettings();
         ApplySelectedTheme();
         InitializeUserSettings();
         RestoreLastSessionOnStartupIfNeeded();
         FormClosing += MainEditorForm_FormClosing;
+    }
+
+    private void LoadAdditionalSettings()
+    {
+        // Load build configuration settings
+        buildConfigurationSettings = EditorConfigurationController.GetBuildConfigurationSettings();
+        
+        // Update menu check states
+        if (menuBuildConfigDebug is not null)
+        {
+            menuBuildConfigDebug.Checked = buildConfigurationSettings.Configuration == BuildConfiguration.Debug;
+        }
+        if (menuBuildConfigRelease is not null)
+        {
+            menuBuildConfigRelease.Checked = buildConfigurationSettings.Configuration == BuildConfiguration.Release;
+        }
+        
+        // Load code structure settings
+        var codeStructureSettings = EditorConfigurationController.GetCodeStructureSettings();
+        codeStructureBrowser?.SetSettings(codeStructureSettings);
     }
 
     private void ApplySelectedTheme()

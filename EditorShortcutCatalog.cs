@@ -18,6 +18,7 @@ internal static class EditorCommandIds
     public const string EditFind = "edit.find";
     public const string EditReplace = "edit.replace";
     public const string EditGoToLine = "edit.goToLine";
+    public const string EditInsertSnippet = "edit.insertSnippet";
 
     public const string ViewToggleProjectTree = "view.toggleProjectTree";
     public const string ViewToggleOutputWindow = "view.toggleOutputWindow";
@@ -86,6 +87,7 @@ internal static class EditorShortcutCatalog
         new ShortcutCommandDefinition(EditorCommandIds.EditFind, "编辑", "查找", "Ctrl+F"),
         new ShortcutCommandDefinition(EditorCommandIds.EditReplace, "编辑", "替换", "Ctrl+H"),
         new ShortcutCommandDefinition(EditorCommandIds.EditGoToLine, "编辑", "转到行", "Ctrl+G"),
+        new ShortcutCommandDefinition(EditorCommandIds.EditInsertSnippet, "编辑", "插入代码片段", "Ctrl+Shift+S"),
 
         new ShortcutCommandDefinition(EditorCommandIds.ViewToggleProjectTree, "视图", "切换资源管理器", "Ctrl+B"),
         new ShortcutCommandDefinition(EditorCommandIds.ViewToggleOutputWindow, "视图", "切换输出窗口", "Ctrl+J"),
