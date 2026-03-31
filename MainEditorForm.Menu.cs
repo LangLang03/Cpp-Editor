@@ -136,13 +136,13 @@ public partial class MainEditorForm
             menuEditReplace,
             menuEditGoToLine);
 
-        menuViewProjectTree = CreateLeaf("menuViewProjectTree", "资源管理器");
+        menuViewProjectTree = CreateLeaf("menuViewProjectTree", "显示资源管理器");
         menuViewProjectTree.CheckOnClick = true;
         menuViewProjectTree.Checked = true;
         menuViewProjectTree.CheckedChanged += (_, _) => ToggleProjectTreePanel(menuViewProjectTree.Checked);
         RegisterMenuShortcut(EditorCommandIds.ViewToggleProjectTree, menuViewProjectTree);
 
-        menuViewOutputWindow = CreateLeaf("menuViewOutputWindow", "输出窗口");
+        menuViewOutputWindow = CreateLeaf("menuViewOutputWindow", "显示输出窗口");
         menuViewOutputWindow.CheckOnClick = true;
         menuViewOutputWindow.Checked = true;
         menuViewOutputWindow.CheckedChanged += (_, _) => ToggleOutputPanel(menuViewOutputWindow.Checked);
@@ -188,15 +188,15 @@ public partial class MainEditorForm
             menuProjectProperties);
 
         menuBuildCompile = CreateLeaf("menuBuildCompile", "编译");
-        menuBuildCompile.Click += (_, _) => ExecuteBuildCommand("编译");
+        menuBuildCompile.Click += (_, _) => ExecuteBuildCommand(EditorCommandIds.BuildCompile);
         RegisterMenuShortcut(EditorCommandIds.BuildCompile, menuBuildCompile);
 
         menuBuildRebuild = CreateLeaf("menuBuildRebuild", "重新编译");
-        menuBuildRebuild.Click += (_, _) => ExecuteBuildCommand("重新编译");
+        menuBuildRebuild.Click += (_, _) => ExecuteBuildCommand(EditorCommandIds.BuildRebuild);
         RegisterMenuShortcut(EditorCommandIds.BuildRebuild, menuBuildRebuild);
 
         menuBuildRun = CreateLeaf("menuBuildRun", "运行");
-        menuBuildRun.Click += (_, _) => ExecuteBuildCommand("运行");
+        menuBuildRun.Click += (_, _) => ExecuteBuildCommand(EditorCommandIds.BuildRun);
         RegisterMenuShortcut(EditorCommandIds.BuildRun, menuBuildRun);
 
         var menuBuild = CreateMenu("menuBuild", "编译",
@@ -206,19 +206,19 @@ public partial class MainEditorForm
             menuBuildRun);
 
         menuDebugStart = CreateLeaf("menuDebugStart", "开始调试");
-        menuDebugStart.Click += (_, _) => ExecuteDebugCommand("开始调试");
+        menuDebugStart.Click += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStart);
         RegisterMenuShortcut(EditorCommandIds.DebugStart, menuDebugStart);
 
         menuDebugStepOver = CreateLeaf("menuDebugStepOver", "单步跳过");
-        menuDebugStepOver.Click += (_, _) => ExecuteDebugCommand("单步跳过");
+        menuDebugStepOver.Click += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStepOver);
         RegisterMenuShortcut(EditorCommandIds.DebugStepOver, menuDebugStepOver);
 
         menuDebugStepInto = CreateLeaf("menuDebugStepInto", "单步进入");
-        menuDebugStepInto.Click += (_, _) => ExecuteDebugCommand("单步进入");
+        menuDebugStepInto.Click += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStepInto);
         RegisterMenuShortcut(EditorCommandIds.DebugStepInto, menuDebugStepInto);
 
         menuDebugStop = CreateLeaf("menuDebugStop", "停止调试");
-        menuDebugStop.Click += (_, _) => ExecuteDebugCommand("停止调试");
+        menuDebugStop.Click += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStop);
         RegisterMenuShortcut(EditorCommandIds.DebugStop, menuDebugStop);
 
         var menuDebug = CreateMenu("menuDebug", "调试",
@@ -228,9 +228,9 @@ public partial class MainEditorForm
             menuDebugStop);
 
         menuToolsCompilerSettings = CreateLeaf("menuToolsCompilerSettings", "编译器设置");
-        menuToolsCompilerSettings.Click += (_, _) => ShowNotImplemented("编译器设置");
+        menuToolsCompilerSettings.Click += (_, _) => OpenCompilerSettingsDialog();
 
-        menuToolsOptions = CreateLeaf("menuToolsOptions", "首选项");
+        menuToolsOptions = CreateLeaf("menuToolsOptions", "选项");
         menuToolsOptions.Click += (_, _) => OpenSettingsDialog();
         RegisterMenuShortcut(EditorCommandIds.ViewOpenSettings, menuToolsOptions);
 

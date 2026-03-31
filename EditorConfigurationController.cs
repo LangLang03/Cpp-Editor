@@ -1,10 +1,11 @@
+using System.Text;
 using System.Text.Json;
 
 namespace C__Editor;
 
 internal static class EditorConfigurationController
 {
-    private const int CurrentVersion = 3;
+    private const int CurrentVersion = 5;
     private const string DefaultAutoPairFormat = "<>{}()";
     private static readonly object SyncRoot = new();
 
@@ -86,6 +87,24 @@ internal static class EditorConfigurationController
         }
     }
 
+    internal static ToolchainSettingsConfig GetToolchainSettings()
+    {
+        lock (SyncRoot)
+        {
+            return GetConfigClone().Toolchain.Clone();
+        }
+    }
+
+    internal static void SaveToolchainSettings(ToolchainSettingsConfig settings)
+    {
+        lock (SyncRoot)
+        {
+            var config = GetConfigClone();
+            config.Toolchain = settings?.Clone() ?? ToolchainSettingsConfig.CreateDefault();
+            SaveNormalized(config);
+        }
+    }
+
     private static EditorAppConfig GetConfigClone()
     {
         if (cachedConfig is null)
@@ -128,7 +147,8 @@ internal static class EditorConfigurationController
             ConfigVersion = CurrentVersion,
             Ui = uiSettings,
             AutoPairs = autoPairs,
-            Shortcuts = shortcuts
+            Shortcuts = shortcuts,
+            Toolchain = ToolchainSettingsConfig.CreateDefault()
         };
     }
 
@@ -196,6 +216,14 @@ internal static class EditorConfigurationController
         }
 
         normalized.Shortcuts = normalizedShortcuts;
+
+        var normalizedToolchain = NormalizeToolchainSection(normalized.Toolchain);
+        if (!ToolchainSectionEquals(normalized.Toolchain, normalizedToolchain))
+        {
+            shouldSave = true;
+        }
+
+        normalized.Toolchain = normalizedToolchain;
 
         return (normalized, shouldSave);
     }
@@ -333,6 +361,68 @@ internal static class EditorConfigurationController
         return true;
     }
 
+    private static ToolchainSettingsConfig NormalizeToolchainSection(ToolchainSettingsConfig? section)
+    {
+        var input = section ?? ToolchainSettingsConfig.CreateDefault();
+
+        var compilerPath = (input.CompilerPath ?? string.Empty).Trim();
+        var setupScriptPath = (input.SetupScriptPath ?? string.Empty).Trim();
+        var toolchainRootPath = (input.ToolchainRootPath ?? string.Empty).Trim();
+
+        // Migrate legacy MinGW fields to the new generic toolchain fields.
+        if (string.IsNullOrWhiteSpace(compilerPath))
+        {
+            compilerPath = (input.GppPath ?? string.Empty).Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(setupScriptPath))
+        {
+            setupScriptPath = (input.GdbPath ?? string.Empty).Trim();
+        }
+
+        var compilerArguments = string.IsNullOrWhiteSpace(input.CompilerArguments)
+            ? "/std:c++17 /EHsc /Zi /nologo"
+            : input.CompilerArguments.Trim();
+
+        // Upgrade old GNU default flags to MSVC defaults.
+        if (string.Equals(compilerArguments, "-std=c++17 -g", StringComparison.Ordinal))
+        {
+            compilerArguments = "/std:c++17 /EHsc /Zi /nologo";
+        }
+
+        var normalized = new ToolchainSettingsConfig
+        {
+            CompilerPath = compilerPath,
+            SetupScriptPath = setupScriptPath,
+            ToolchainRootPath = toolchainRootPath,
+            CompilerArguments = compilerArguments,
+            BuildOutputDirectory = string.IsNullOrWhiteSpace(input.BuildOutputDirectory)
+                ? Path.Combine(".cppeditor", "build")
+                : input.BuildOutputDirectory.Trim(),
+
+            // Clear legacy MinGW-only fields after migration.
+            CompilerArchivePath = string.Empty,
+            GppPath = string.Empty,
+            GdbPath = string.Empty
+        };
+
+        return normalized;
+    }
+
+    private static bool ToolchainSectionEquals(ToolchainSettingsConfig? left, ToolchainSettingsConfig right)
+    {
+        if (left is null)
+        {
+            return false;
+        }
+
+        return string.Equals(left.CompilerPath, right.CompilerPath, StringComparison.Ordinal) &&
+               string.Equals(left.SetupScriptPath, right.SetupScriptPath, StringComparison.Ordinal) &&
+               string.Equals(left.ToolchainRootPath, right.ToolchainRootPath, StringComparison.Ordinal) &&
+               string.Equals(left.CompilerArguments, right.CompilerArguments, StringComparison.Ordinal) &&
+               string.Equals(left.BuildOutputDirectory, right.BuildOutputDirectory, StringComparison.Ordinal);
+    }
+
     private static bool TryReadConfig(string path, out EditorAppConfig? config)
     {
         config = TryReadConfig<EditorAppConfig>(path);
@@ -348,7 +438,7 @@ internal static class EditorConfigurationController
                 return default;
             }
 
-            var json = File.ReadAllText(path);
+            var json = File.ReadAllText(path, Encoding.UTF8);
             return JsonSerializer.Deserialize<T>(json);
         }
         catch
@@ -373,7 +463,7 @@ internal static class EditorConfigurationController
                 WriteIndented = true
             });
 
-            File.WriteAllText(path, json);
+            File.WriteAllText(path, json, new UTF8Encoding(false));
         }
         catch
         {
@@ -412,17 +502,20 @@ internal static class EditorConfigurationController
     {
         return Path.Combine(GetSettingsRootPath(), "autopairs.json");
     }
+
 }
 
 internal sealed class EditorAppConfig
 {
-    public int ConfigVersion { get; set; } = 3;
+    public int ConfigVersion { get; set; } = 5;
 
     public UiSettings Ui { get; set; } = new();
 
     public AutoPairSettingsConfig AutoPairs { get; set; } = new();
 
     public ShortcutSettingsSection Shortcuts { get; set; } = new();
+
+    public ToolchainSettingsConfig Toolchain { get; set; } = ToolchainSettingsConfig.CreateDefault();
 
     internal EditorAppConfig Clone()
     {
@@ -431,7 +524,8 @@ internal sealed class EditorAppConfig
             ConfigVersion = ConfigVersion,
             Ui = Ui?.Clone() ?? new UiSettings(),
             AutoPairs = AutoPairs?.Clone() ?? new AutoPairSettingsConfig(),
-            Shortcuts = Shortcuts?.Clone() ?? new ShortcutSettingsSection()
+            Shortcuts = Shortcuts?.Clone() ?? new ShortcutSettingsSection(),
+            Toolchain = Toolchain?.Clone() ?? ToolchainSettingsConfig.CreateDefault()
         };
     }
 }
@@ -480,6 +574,56 @@ internal sealed class ShortcutSettingsSection
         return new ShortcutSettingsSection
         {
             GestureByCommandId = new Dictionary<string, string>(GestureByCommandId, StringComparer.OrdinalIgnoreCase)
+        };
+    }
+}
+
+internal sealed class ToolchainSettingsConfig
+{
+    public string CompilerPath { get; set; } = string.Empty;
+
+    public string SetupScriptPath { get; set; } = string.Empty;
+
+    // Legacy MinGW fields retained for config migration only.
+    public string CompilerArchivePath { get; set; } = string.Empty;
+
+    public string ToolchainRootPath { get; set; } = string.Empty;
+
+    public string GppPath { get; set; } = string.Empty;
+
+    public string GdbPath { get; set; } = string.Empty;
+
+    public string CompilerArguments { get; set; } = "/std:c++17 /EHsc /Zi /nologo";
+
+    public string BuildOutputDirectory { get; set; } = @".cppeditor\build";
+
+    internal static ToolchainSettingsConfig CreateDefault()
+    {
+        return new ToolchainSettingsConfig
+        {
+            CompilerPath = string.Empty,
+            SetupScriptPath = string.Empty,
+            CompilerArchivePath = string.Empty,
+            ToolchainRootPath = string.Empty,
+            GppPath = string.Empty,
+            GdbPath = string.Empty,
+            CompilerArguments = "/std:c++17 /EHsc /Zi /nologo",
+            BuildOutputDirectory = @".cppeditor\build"
+        };
+    }
+
+    internal ToolchainSettingsConfig Clone()
+    {
+        return new ToolchainSettingsConfig
+        {
+            CompilerPath = CompilerPath,
+            SetupScriptPath = SetupScriptPath,
+            CompilerArchivePath = CompilerArchivePath,
+            ToolchainRootPath = ToolchainRootPath,
+            GppPath = GppPath,
+            GdbPath = GdbPath,
+            CompilerArguments = CompilerArguments,
+            BuildOutputDirectory = BuildOutputDirectory
         };
     }
 }

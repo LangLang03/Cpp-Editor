@@ -28,6 +28,7 @@ public partial class MainEditorForm
             Font = new Font("Consolas", 10.2F, FontStyle.Regular, GraphicsUnit.Point, 0),
             ReadOnly = true
         };
+        rtbBuildOutput.ContextMenuStrip = CreateOutputContextMenu(rtbBuildOutput);
         buildOutputPage.Controls.Add(rtbBuildOutput);
 
         var compileErrorsPage = new TabPage
@@ -57,6 +58,7 @@ public partial class MainEditorForm
             Font = new Font("Consolas", 10.2F, FontStyle.Regular, GraphicsUnit.Point, 0),
             ReadOnly = true
         };
+        rtbRunOutput.ContextMenuStrip = CreateOutputContextMenu(rtbRunOutput);
         runOutputPage.Controls.Add(rtbRunOutput);
 
         bottomTabs.Controls.Add(buildOutputPage);
@@ -64,6 +66,57 @@ public partial class MainEditorForm
         bottomTabs.Controls.Add(runOutputPage);
 
         return bottomTabs;
+    }
+
+    private static ContextMenuStrip CreateOutputContextMenu(RichTextBox targetTextBox)
+    {
+        var menu = new ContextMenuStrip();
+
+        var menuCopy = new ToolStripMenuItem("复制");
+        menuCopy.Click += (_, _) =>
+        {
+            if (string.IsNullOrEmpty(targetTextBox.SelectedText))
+            {
+                return;
+            }
+
+            try
+            {
+                Clipboard.SetText(targetTextBox.SelectedText);
+            }
+            catch
+            {
+                // Ignore clipboard busy failures.
+            }
+        };
+
+        var menuCopyAll = new ToolStripMenuItem("复制全部");
+        menuCopyAll.Click += (_, _) =>
+        {
+            if (string.IsNullOrEmpty(targetTextBox.Text))
+            {
+                return;
+            }
+
+            try
+            {
+                Clipboard.SetText(targetTextBox.Text);
+            }
+            catch
+            {
+                // Ignore clipboard busy failures.
+            }
+        };
+
+        menu.Opening += (_, _) =>
+        {
+            menuCopy.Enabled = targetTextBox.SelectionLength > 0;
+            menuCopyAll.Enabled = targetTextBox.TextLength > 0;
+        };
+
+        menu.Items.Add(menuCopy);
+        menu.Items.Add(menuCopyAll);
+        return menu;
     }
 
     private DataGridView CreateCompileErrorsGrid()

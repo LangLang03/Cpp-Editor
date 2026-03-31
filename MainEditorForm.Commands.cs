@@ -519,22 +519,14 @@ public partial class MainEditorForm
         PersistUiSettingsFromCurrentState();
     }
 
-    private void ExecuteBuildCommand(string commandName)
+    private async void ExecuteBuildCommand(string commandId)
     {
-        tabBottom.SelectedIndex = 0;
-        rtbBuildOutput.AppendText($"[{DateTime.Now:HH:mm:ss}] {commandName} (占位)\r\n");
-
-        if (string.Equals(commandName, "运行", StringComparison.Ordinal))
-        {
-            tabBottom.SelectedIndex = 2;
-            rtbRunOutput.AppendText($"[{DateTime.Now:HH:mm:ss}] 暂未接入运行器。\r\n");
-        }
+        await ExecuteBuildCommandAsync(commandId);
     }
 
-    private void ExecuteDebugCommand(string commandName)
+    private void ExecuteDebugCommand(string commandId)
     {
-        tabBottom.SelectedIndex = 0;
-        rtbBuildOutput.AppendText($"[{DateTime.Now:HH:mm:ss}] {commandName} (占位)\r\n");
+        ExecuteDebugCommandInternal(commandId);
     }
 
     private void AppendBuildOutput(string message)
@@ -544,7 +536,15 @@ public partial class MainEditorForm
             return;
         }
 
+        if (rtbBuildOutput.InvokeRequired)
+        {
+            rtbBuildOutput.BeginInvoke(new Action(() => AppendBuildOutput(message)));
+            return;
+        }
+
         rtbBuildOutput.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\r\n");
+        rtbBuildOutput.SelectionStart = rtbBuildOutput.TextLength;
+        rtbBuildOutput.ScrollToCaret();
     }
 
     private void ShowNotImplemented(string featureName)

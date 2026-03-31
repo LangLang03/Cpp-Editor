@@ -3,13 +3,16 @@ namespace C__Editor;
 public partial class MainEditorForm
 {
     private UiSettings uiSettings = new();
+    private ToolchainSettingsConfig toolchainSettings = ToolchainSettingsConfig.CreateDefault();
     private bool suppressViewMenuStateSync;
 
     private void InitializeUserSettings()
     {
         uiSettings = EditorUiSettingsController.Get();
+        toolchainSettings = EditorToolchainSettingsController.Get();
         ReloadShortcutBindings();
         ApplyUiSettings(uiSettings);
+        UpdateBuildRunMenuState();
     }
 
     private void ApplyUiSettings(UiSettings settings)
@@ -75,5 +78,18 @@ public partial class MainEditorForm
 
         ApplyEditorLanguageConfiguration(currentEditorFilePath ?? "untitled.cpp");
         AppendBuildOutput("Settings applied");
+    }
+
+    private void OpenCompilerSettingsDialog()
+    {
+        using var dialog = new ToolchainSettingsForm(toolchainSettings);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        toolchainSettings = dialog.ResultSettings;
+        EditorToolchainSettingsController.Save(toolchainSettings);
+        AppendBuildOutput("编译器设置已保存。");
     }
 }

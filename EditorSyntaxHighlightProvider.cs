@@ -11,6 +11,7 @@ internal sealed class EditorSyntaxHighlightProvider : SweetEditor.IDecorationPro
     private readonly object syncRoot = new();
     private readonly HighlightEngine highlightEngine;
 
+    private SweetLine.Document? analysisDocument;
     private DocumentAnalyzer? documentAnalyzer;
     private DocumentHighlight? cacheHighlight;
     private string sourceFileName = "untitled.cpp";
@@ -41,8 +42,7 @@ internal sealed class EditorSyntaxHighlightProvider : SweetEditor.IDecorationPro
         {
             sourceFileName = string.IsNullOrWhiteSpace(fileName) ? "untitled.cpp" : fileName;
             sourceText = text ?? string.Empty;
-            documentAnalyzer = null;
-            cacheHighlight = null;
+            ResetAnalyzerLocked();
         }
     }
 
@@ -67,6 +67,9 @@ internal sealed class EditorSyntaxHighlightProvider : SweetEditor.IDecorationPro
             {
                 if (context.TextChanges.Count > 0)
                 {
+                    var hasTextChange = false;
+                    var fallbackToFullAnalysis = false;
+
                     foreach (var change in context.TextChanges)
                     {
                         if (change.Range == null)
@@ -75,8 +78,36 @@ internal sealed class EditorSyntaxHighlightProvider : SweetEditor.IDecorationPro
                         }
 
                         var newText = change.NewText ?? string.Empty;
-                        cacheHighlight = documentAnalyzer.AnalyzeIncremental(ConvertToSweetLineTextRange(change.Range.Value), newText);
-                        sourceText = ApplyTextChange(sourceText, change.Range.Value, newText);
+                        var range = change.Range.Value;
+                        if (!fallbackToFullAnalysis)
+                        {
+                            if (IsValidRangeForIncremental(sourceText, range))
+                            {
+                                try
+                                {
+                                    cacheHighlight = documentAnalyzer.AnalyzeIncremental(ConvertToSweetLineTextRange(range), newText);
+                                }
+                                catch
+                                {
+                                    fallbackToFullAnalysis = true;
+                                }
+                            }
+                            else
+                            {
+                                fallbackToFullAnalysis = true;
+                            }
+                        }
+
+                        sourceText = ApplyTextChange(sourceText, range, newText);
+                        hasTextChange = true;
+                    }
+
+                    if (hasTextChange)
+                    {
+                        if (fallbackToFullAnalysis || cacheHighlight is null)
+                        {
+                            EnsureAnalyzer(forceRebuild: true);
+                        }
                     }
                 }
                 else if (cacheHighlight is null)
@@ -94,16 +125,34 @@ internal sealed class EditorSyntaxHighlightProvider : SweetEditor.IDecorationPro
         }
     }
 
-    private void EnsureAnalyzer()
+    private void EnsureAnalyzer(bool forceRebuild = false)
     {
-        if (documentAnalyzer is not null)
+        if (!forceRebuild && documentAnalyzer is not null)
         {
             return;
         }
 
-        using var document = new SweetLine.Document(BuildAnalysisUri(sourceFileName), sourceText);
-        documentAnalyzer = highlightEngine.LoadDocument(document);
+        ResetAnalyzerLocked();
+        analysisDocument = new SweetLine.Document(BuildAnalysisUri(sourceFileName), sourceText);
+        documentAnalyzer = highlightEngine.LoadDocument(analysisDocument);
         cacheHighlight = documentAnalyzer?.Analyze();
+    }
+
+    private void ResetAnalyzerLocked()
+    {
+        if (documentAnalyzer is IDisposable analyzerDisposable)
+        {
+            analyzerDisposable.Dispose();
+        }
+
+        if (analysisDocument is IDisposable documentDisposable)
+        {
+            documentDisposable.Dispose();
+        }
+
+        documentAnalyzer = null;
+        analysisDocument = null;
+        cacheHighlight = null;
     }
 
     private static SweetEditor.DecorationResult BuildSyntaxResult(DocumentHighlight? highlight, SweetEditor.DecorationContext context)
@@ -199,6 +248,57 @@ internal sealed class EditorSyntaxHighlightProvider : SweetEditor.IDecorationPro
         return new SweetLineTextRange(
             new SweetLineTextPosition(range.Start.Line, range.Start.Column, 0),
             new SweetLineTextPosition(range.End.Line, range.End.Column, 0));
+    }
+
+    private static bool IsValidRangeForIncremental(string text, EditorTextRange range)
+    {
+        if (!TryLineColumnToOffsetStrict(text, range.Start.Line, range.Start.Column, out var startOffset))
+        {
+            return false;
+        }
+
+        if (!TryLineColumnToOffsetStrict(text, range.End.Line, range.End.Column, out var endOffset))
+        {
+            return false;
+        }
+
+        return startOffset <= endOffset;
+    }
+
+    private static bool TryLineColumnToOffsetStrict(string text, int targetLine, int targetColumn, out int offset)
+    {
+        offset = 0;
+        if (targetLine < 0 || targetColumn < 0)
+        {
+            return false;
+        }
+
+        var lineStart = 0;
+        for (var currentLine = 0; currentLine < targetLine; currentLine++)
+        {
+            var lineBreak = text.IndexOf('\n', lineStart);
+            if (lineBreak < 0)
+            {
+                return false;
+            }
+
+            lineStart = lineBreak + 1;
+        }
+
+        var lineEnd = text.IndexOf('\n', lineStart);
+        if (lineEnd < 0)
+        {
+            lineEnd = text.Length;
+        }
+
+        var lineLength = lineEnd - lineStart;
+        if (targetColumn > lineLength)
+        {
+            return false;
+        }
+
+        offset = lineStart + targetColumn;
+        return true;
     }
 
     private static string ApplyTextChange(string originalText, EditorTextRange range, string newText)
