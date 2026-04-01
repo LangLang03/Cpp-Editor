@@ -13,21 +13,27 @@ internal static class EditorFileEncodingHelper
     private static readonly UnicodeEncoding Utf16Le = new(bigEndian: false, byteOrderMark: true, throwOnInvalidBytes: true);
     private static readonly UnicodeEncoding Utf16Be = new(bigEndian: true, byteOrderMark: true, throwOnInvalidBytes: true);
 
-    private static readonly IReadOnlyList<EncodingOption> CommonEncodings =
-    [
-        new EncodingOption("UTF-8", new UTF8Encoding(false)),
-        new EncodingOption("UTF-8 BOM", new UTF8Encoding(true)),
-        new EncodingOption("GB18030", Encoding.GetEncoding("GB18030")),
-        new EncodingOption("GB2312", Encoding.GetEncoding("GB2312")),
-        new EncodingOption("Big5", Encoding.GetEncoding("big5")),
-        new EncodingOption("UTF-16 LE", new UnicodeEncoding(false, true)),
-        new EncodingOption("UTF-16 BE", new UnicodeEncoding(true, true)),
-        new EncodingOption("Windows-1252", Encoding.GetEncoding(1252))
-    ];
+    private static readonly IReadOnlyList<EncodingOption> CommonEncodings;
 
     static EditorFileEncodingHelper()
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+        var commonEncodings = new List<EncodingOption>
+        {
+            new("UTF-8", new UTF8Encoding(false)),
+            new("UTF-8 BOM", new UTF8Encoding(true))
+        };
+
+        TryAddEncoding(commonEncodings, "GB18030", "GB18030");
+        TryAddEncoding(commonEncodings, "GB2312", "GB2312");
+        TryAddEncoding(commonEncodings, "big5", "Big5");
+
+        commonEncodings.Add(new EncodingOption("UTF-16 LE", new UnicodeEncoding(false, true)));
+        commonEncodings.Add(new EncodingOption("UTF-16 BE", new UnicodeEncoding(true, true)));
+
+        TryAddEncoding(commonEncodings, 1252, "Windows-1252");
+        CommonEncodings = commonEncodings;
     }
 
     internal static Encoding DefaultEncoding => new UTF8Encoding(false);
@@ -74,8 +80,13 @@ internal static class EditorFileEncodingHelper
         }
         catch (DecoderFallbackException)
         {
-            var gb18030 = Encoding.GetEncoding("GB18030");
-            return new FileReadResult(gb18030.GetString(bytes), gb18030, "GB18030");
+            var fallbackEncoding = TryGetEncoding("GB18030")
+                ?? TryGetEncoding(936)
+                ?? DefaultEncoding;
+            return new FileReadResult(
+                fallbackEncoding.GetString(bytes),
+                fallbackEncoding,
+                GetDisplayName(fallbackEncoding));
         }
     }
 
@@ -170,5 +181,47 @@ internal static class EditorFileEncodingHelper
         }
 
         return preamble.Count;
+    }
+
+    private static void TryAddEncoding(ICollection<EncodingOption> sink, string name, string label)
+    {
+        var encoding = TryGetEncoding(name);
+        if (encoding is not null)
+        {
+            sink.Add(new EncodingOption(label, encoding));
+        }
+    }
+
+    private static void TryAddEncoding(ICollection<EncodingOption> sink, int codePage, string label)
+    {
+        var encoding = TryGetEncoding(codePage);
+        if (encoding is not null)
+        {
+            sink.Add(new EncodingOption(label, encoding));
+        }
+    }
+
+    private static Encoding? TryGetEncoding(string name)
+    {
+        try
+        {
+            return Encoding.GetEncoding(name);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Encoding? TryGetEncoding(int codePage)
+    {
+        try
+        {
+            return Encoding.GetEncoding(codePage);
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
