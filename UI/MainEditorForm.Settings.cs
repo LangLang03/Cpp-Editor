@@ -6,6 +6,7 @@ public partial class MainEditorForm
     private ToolchainSettingsConfig toolchainSettings = ToolchainSettingsConfig.CreateDefault();
     private ExplorerSettingsConfig explorerSettings = new();
     private CppTemplateSettingsConfig cppTemplateSettings = CppTemplateSettingsConfig.CreateDefault();
+    private CodeStructureSettings codeStructureSettings = CodeStructureSettings.CreateDefault();
     private bool suppressViewMenuStateSync;
 
     private void InitializeUserSettings()

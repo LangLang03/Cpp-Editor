@@ -17,7 +17,11 @@ public partial class MainEditorForm
         }
 
         editorControlMain.TextChanged -= EditorControlMain_TextChanged;
+        editorControlMain.CursorChanged -= EditorControlMain_CursorChanged;
+        editorControlMain.SelectionChanged -= EditorControlMain_SelectionChanged;
         editorControlMain.TextChanged += EditorControlMain_TextChanged;
+        editorControlMain.CursorChanged += EditorControlMain_CursorChanged;
+        editorControlMain.SelectionChanged += EditorControlMain_SelectionChanged;
     }
 
     private void EditorControlMain_TextChanged(object? sender, SweetEditor.TextChangedEventArgs e)
@@ -34,7 +38,18 @@ public partial class MainEditorForm
             state.IsDirty = true;
         }
 
+        InvalidateCodeStructureCacheForCurrentFile();
         UpdateEditorTabHeader(targetTab: tabEditorHost.SelectedTab);
+    }
+
+    private void EditorControlMain_CursorChanged(object? sender, SweetEditor.CursorChangedEventArgs e)
+    {
+        UpdateEditorStatusBar(e.CursorPosition);
+    }
+
+    private void EditorControlMain_SelectionChanged(object? sender, SweetEditor.SelectionChangedEventArgs e)
+    {
+        UpdateEditorStatusBar(e.CursorPosition);
     }
 
     private void NewUntitledDocument()
@@ -45,7 +60,13 @@ public partial class MainEditorForm
         editorControlMain?.Focus();
     }
 
-    private void LoadEditorDocumentText(string text, string? filePath, string? displayName = null, bool markClean = true)
+    private void LoadEditorDocumentText(
+        string text,
+        string? filePath,
+        string? displayName = null,
+        bool markClean = true,
+        Encoding? textEncoding = null,
+        string? encodingDisplayName = null)
     {
         if (tabEditorHost is null)
         {
@@ -70,6 +91,10 @@ public partial class MainEditorForm
         state.DisplayName = ResolveDocumentDisplayName(state.FilePath, displayName);
         state.TextContent = normalized;
         state.IsDirty = !markClean;
+        state.TextEncoding = textEncoding ?? state.TextEncoding;
+        state.EncodingDisplayName = string.IsNullOrWhiteSpace(encodingDisplayName)
+            ? EditorFileEncodingHelper.GetDisplayName(state.TextEncoding)
+            : encodingDisplayName!;
 
         if (activeEditorTab != selectedTab)
         {
@@ -96,6 +121,7 @@ public partial class MainEditorForm
         currentEditorFilePath = state.FilePath;
         hasUnsavedChanges = state.IsDirty;
         UpdateEditorTabHeader(targetTab: selectedTab);
+        UpdateEditorStatusBar();
     }
 
     private void UpdateEditorTabHeader(string? displayName = null, TabPage? targetTab = null)
@@ -130,6 +156,7 @@ public partial class MainEditorForm
         {
             currentEditorFilePath = state.FilePath;
             hasUnsavedChanges = state.IsDirty;
+            UpdateEditorStatusBar();
         }
     }
 
@@ -155,10 +182,11 @@ public partial class MainEditorForm
 
         try
         {
-            File.WriteAllText(state.FilePath, state.TextContent, new UTF8Encoding(false));
+            File.WriteAllText(state.FilePath, state.TextContent, state.TextEncoding);
             state.IsDirty = false;
             currentEditorFilePath = state.FilePath;
             hasUnsavedChanges = false;
+            InvalidateCodeStructureCacheForPath(state.FilePath);
             UpdateEditorTabHeader(targetTab: selectedTab);
             AddOpenedFileNode(state.FilePath, beginEdit: false);
             AppendBuildOutput($"已保存: {state.FilePath}");
@@ -202,16 +230,19 @@ public partial class MainEditorForm
             return false;
         }
 
+        var previousPath = state.FilePath;
         try
         {
             var normalizedPath = Path.GetFullPath(dialog.FileName);
-            File.WriteAllText(normalizedPath, state.TextContent, new UTF8Encoding(false));
+            File.WriteAllText(normalizedPath, state.TextContent, state.TextEncoding);
 
             state.FilePath = normalizedPath;
             state.DisplayName = Path.GetFileName(normalizedPath);
             state.IsDirty = false;
             currentEditorFilePath = normalizedPath;
             hasUnsavedChanges = false;
+            InvalidateCodeStructureCacheForPath(previousPath);
+            InvalidateCodeStructureCacheForPath(normalizedPath);
 
             UpdateEditorTabHeader(targetTab: selectedTab);
             AddOpenedFileNode(normalizedPath, beginEdit: false);
@@ -222,6 +253,69 @@ public partial class MainEditorForm
         {
             MessageBox.Show(this, ex.Message, "另存为失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
+        }
+    }
+
+    private void ReopenCurrentDocumentWithEncoding(Encoding encoding, string displayName)
+    {
+        var selectedTab = tabEditorHost?.SelectedTab;
+        var state = GetDocumentState(selectedTab);
+        if (selectedTab is null || state is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(state.FilePath) || !File.Exists(state.FilePath))
+        {
+            MessageBox.Show(
+                this,
+                "\u5F53\u524D\u6587\u6863\u5C1A\u672A\u4FDD\u5B58\u5230\u78C1\u76D8\uFF0C\u65E0\u6CD5\u91CD\u65B0\u6253\u5F00\u3002",
+                "\u91CD\u65B0\u6253\u5F00",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        SyncActiveDocumentSnapshot();
+        if (state.IsDirty)
+        {
+            var decision = MessageBox.Show(
+                this,
+                "\u5F53\u524D\u6587\u4EF6\u6709\u672A\u4FDD\u5B58\u4FEE\u6539\uFF0C\u91CD\u65B0\u6253\u5F00\u5C06\u4E22\u5931\u4FEE\u6539\uFF0C\u662F\u5426\u7EE7\u7EED\uFF1F",
+                "\u91CD\u65B0\u6253\u5F00",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+            if (decision != DialogResult.Yes)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            var readResult = EditorFileEncodingHelper.ReadFileWithEncoding(state.FilePath, encoding, displayName);
+            state.TextEncoding = readResult.Encoding;
+            state.EncodingDisplayName = readResult.DisplayName;
+
+            LoadEditorDocumentText(
+                readResult.Text,
+                state.FilePath,
+                Path.GetFileName(state.FilePath),
+                markClean: true,
+                textEncoding: state.TextEncoding,
+                encodingDisplayName: state.EncodingDisplayName);
+
+            InvalidateCodeStructureCacheForPath(state.FilePath);
+            AppendBuildOutput($"已按 {state.EncodingDisplayName} 重新打开: {state.FilePath}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                ex.Message,
+                "\u91CD\u65B0\u6253\u5F00\u5931\u8D25",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
         }
     }
 

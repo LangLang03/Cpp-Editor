@@ -18,6 +18,9 @@ public partial class MainEditorForm
     private SweetEditor.EditorControl editorControlMain = null!;
     private CodeStructureBrowser codeStructureBrowser = null!;
     private TabControl tabBottom = null!;
+    private StatusStrip statusEditor = null!;
+    private ToolStripStatusLabel statusEditorSpacer = null!;
+    private ToolStripStatusLabel statusEditorInfo = null!;
     private RichTextBox rtbBuildOutput = null!;
     private DataGridView dgvCompileErrors = null!;
     private RichTextBox rtbRunOutput = null!;
@@ -48,6 +51,7 @@ public partial class MainEditorForm
         tabEditorHost = CreateEditorTabs();
         codeStructureBrowser = new CodeStructureBrowser();
         tabBottom = CreateBottomTabs();
+        statusEditor = CreateEditorStatusBar();
 
         ((System.ComponentModel.ISupportInitialize)splitMain).BeginInit();
         splitMain.SuspendLayout();
@@ -99,6 +103,7 @@ public partial class MainEditorForm
         AutoScaleMode = AutoScaleMode.Font;
         ClientSize = new Size(1400, 900);
         Controls.Add(splitMain);
+        Controls.Add(statusEditor);
         Controls.Add(menuMain);
         MainMenuStrip = menuMain;
         MinimumSize = new Size(1200, 700);
@@ -130,11 +135,19 @@ public partial class MainEditorForm
         // Setup code structure browser
         codeStructureBrowser.ElementDoubleClicked += CodeStructureBrowser_ElementDoubleClicked;
         codeStructureBrowser.SettingsChanged += CodeStructureBrowser_SettingsChanged;
+        codeStructureBrowser.RefreshRequested += CodeStructureBrowser_RefreshRequested;
+        UpdateEditorStatusBar();
     }
 
     private void CodeStructureBrowser_SettingsChanged(object? sender, CodeStructureSettingsEventArgs e)
     {
+        codeStructureSettings = e.Settings.Clone();
         EditorConfigurationController.SaveCodeStructureSettings(e.Settings);
+    }
+
+    private void CodeStructureBrowser_RefreshRequested(object? sender, EventArgs e)
+    {
+        RefreshCodeStructureBrowser();
     }
 
     private void MainEditorForm_Shown(object? sender, EventArgs e)

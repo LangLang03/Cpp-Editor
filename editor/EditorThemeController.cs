@@ -88,7 +88,8 @@ internal static class EditorThemeController
         RichTextBox rtbBuildOutput,
         DataGridView dgvCompileErrors,
         RichTextBox rtbRunOutput,
-        RichTextBox rtbRuntimeLog)
+        RichTextBox rtbRuntimeLog,
+        StatusStrip? statusEditor = null)
     {
         var palette = ResolvePalette(themeId);
 
@@ -115,6 +116,7 @@ internal static class EditorThemeController
         ApplyOutputTheme(rtbRunOutput, palette);
         ApplyOutputTheme(rtbRuntimeLog, palette);
         ApplyCompileErrorsTheme(dgvCompileErrors, palette);
+        ApplyStatusStripTheme(statusEditor, palette);
 
         ApplyContextMenuTheme(treeProject.ContextMenuStrip, palette);
         ApplyContextMenuTheme(rtbBuildOutput.ContextMenuStrip, palette);
@@ -145,7 +147,8 @@ internal static class EditorThemeController
         RichTextBox rtbBuildOutput,
         DataGridView dgvCompileErrors,
         RichTextBox rtbRunOutput,
-        RichTextBox rtbRuntimeLog)
+        RichTextBox rtbRuntimeLog,
+        StatusStrip? statusEditor = null)
     {
         ApplyTheme(
             LightThemeId,
@@ -159,7 +162,8 @@ internal static class EditorThemeController
             rtbBuildOutput,
             dgvCompileErrors,
             rtbRunOutput,
-            rtbRuntimeLog);
+            rtbRuntimeLog,
+            statusEditor);
     }
 
     internal static void ApplyLightTheme(SweetEditor.EditorControl editorControl)
@@ -268,6 +272,23 @@ internal static class EditorThemeController
             row.DefaultCellStyle.ForeColor = palette.PrimaryTextColor;
             row.DefaultCellStyle.SelectionBackColor = palette.SelectionAccentColor;
             row.DefaultCellStyle.SelectionForeColor = palette.PrimaryTextColor;
+        }
+    }
+
+    private static void ApplyStatusStripTheme(StatusStrip? statusStrip, ThemePalette palette)
+    {
+        if (statusStrip is null)
+        {
+            return;
+        }
+
+        statusStrip.BackColor = palette.HeaderColor;
+        statusStrip.ForeColor = palette.PrimaryTextColor;
+
+        foreach (ToolStripItem item in statusStrip.Items)
+        {
+            item.BackColor = palette.HeaderColor;
+            item.ForeColor = palette.PrimaryTextColor;
         }
     }
 

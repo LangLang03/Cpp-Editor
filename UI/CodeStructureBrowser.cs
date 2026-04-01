@@ -1,7 +1,5 @@
 namespace C__Editor;
 
-using System.ComponentModel;
-
 internal sealed class CodeStructureBrowser : UserControl
 {
     private readonly TreeView treeView;
@@ -13,10 +11,10 @@ internal sealed class CodeStructureBrowser : UserControl
 
     public event EventHandler<CodeElementEventArgs>? ElementDoubleClicked;
     public event EventHandler<CodeStructureSettingsEventArgs>? SettingsChanged;
+    public event EventHandler? RefreshRequested;
 
     public CodeStructureBrowser()
     {
-        // Set UserControl to fill parent
         Dock = DockStyle.Fill;
 
         treeView = new TreeView
@@ -38,7 +36,7 @@ internal sealed class CodeStructureBrowser : UserControl
         };
         toolStrip.Items.AddRange(new ToolStripItem[]
         {
-            new ToolStripButton("刷新", null, (_, _) => RefreshStructure()) { ToolTipText = "刷新代码结构" },
+            new ToolStripButton("刷新", null, (_, _) => RequestRefresh()) { ToolTipText = "手动刷新代码结构" },
             new ToolStripSeparator(),
             new ToolStripButton("展开", null, (_, _) => treeView.ExpandAll()) { ToolTipText = "展开所有节点" },
             new ToolStripButton("折叠", null, (_, _) => treeView.CollapseAll()) { ToolTipText = "折叠所有节点" },
@@ -58,38 +56,49 @@ internal sealed class CodeStructureBrowser : UserControl
         Controls.Add(treeView);
         Controls.Add(toolStrip);
         Controls.Add(lblStatus);
-
         BorderStyle = BorderStyle.None;
     }
 
     public void SetSettings(CodeStructureSettings newSettings)
     {
         settings = newSettings.Clone();
-        if (currentResult != null)
+        if (currentResult is not null)
         {
             DisplayResult(currentResult);
         }
     }
 
-    public void LoadFile(string filePath)
+    public void SetCurrentFile(string? filePath)
     {
         currentFilePath = filePath;
-        RefreshStructure();
-    }
-
-    public void RefreshStructure()
-    {
-        if (string.IsNullOrWhiteSpace(currentFilePath))
+        if (string.IsNullOrWhiteSpace(filePath))
         {
-            treeView.Nodes.Clear();
-            lblStatus.Text = "没有打开的文件";
+            Clear();
             return;
         }
 
-        lblStatus.Text = "正在解析...";
-        Application.DoEvents();
+        if (currentResult is null ||
+            !string.Equals(currentResult.FilePath, filePath, StringComparison.OrdinalIgnoreCase))
+        {
+            treeView.Nodes.Clear();
+            lblStatus.Text = "等待分析...";
+        }
+    }
 
-        currentResult = CodeStructureParser.ParseFile(currentFilePath);
+    public void RequestRefresh()
+    {
+        RefreshRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void ShowStatusMessage(string message)
+    {
+        lblStatus.Text = message;
+    }
+
+    public void ShowResult(CodeStructureParseResult result)
+    {
+        currentResult = result.Clone();
+        currentFilePath = result.FilePath;
         DisplayResult(currentResult);
     }
 
@@ -112,7 +121,6 @@ internal sealed class CodeStructureBrowser : UserControl
         }
 
         var elements = FilterElements(result.Elements);
-        
         foreach (var element in elements)
         {
             var node = CreateTreeNode(element);
@@ -120,40 +128,60 @@ internal sealed class CodeStructureBrowser : UserControl
             AddChildren(node, element);
         }
 
-        lblStatus.Text = $"{elements.Count} 个顶级元素" + 
-            (result.IsPartial ? $" (解析错误: {result.ErrorMessage})" : "");
+        lblStatus.Text = result.IsPartial && !string.IsNullOrWhiteSpace(result.ErrorMessage)
+            ? $"顶层 {elements.Count} 项（部分解析：{result.ErrorMessage}）"
+            : $"顶层 {elements.Count} 项";
     }
 
-    private List<CodeElement> FilterElements(List<CodeElement> elements)
+    private List<CodeElement> FilterElements(IEnumerable<CodeElement> elements)
     {
-        return elements.Where(e =>
+        var filtered = elements.Where(ShouldDisplayElement);
+
+        if (settings.SortAlphabetically)
         {
-            return e.Type switch
-            {
-                CodeElementType.Include => settings.ShowIncludes,
-                CodeElementType.Macro => settings.ShowMacros,
-                CodeElementType.Variable or CodeElementType.Field => settings.ShowVariables,
-                _ => true
-            };
-        }).ToList();
+            return filtered.OrderBy(e => e.DisplayText, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
+
+        return filtered.ToList();
+    }
+
+    private bool ShouldDisplayElement(CodeElement element)
+    {
+        var visible = element.Type switch
+        {
+            CodeElementType.Include => settings.ShowIncludes,
+            CodeElementType.Macro => settings.ShowMacros,
+            CodeElementType.Variable or CodeElementType.Field => settings.ShowVariables,
+            _ => true
+        };
+
+        if (!visible)
+        {
+            return false;
+        }
+
+        if (element.Type == CodeElementType.AccessSection)
+        {
+            return element.Children.Any(ShouldDisplayElement);
+        }
+
+        return true;
     }
 
     private TreeNode CreateTreeNode(CodeElement element)
     {
-        var node = new TreeNode(element.DisplayText)
+        return new TreeNode(element.DisplayText)
         {
             Tag = element,
             ImageKey = GetImageKey(element.Type),
             SelectedImageKey = GetImageKey(element.Type),
-            ToolTipText = $"{element.Type} (第 {element.LineNumber} 行)"
+            ToolTipText = $"{element.Type} (Line {element.LineNumber})"
         };
-        return node;
     }
 
     private void AddChildren(TreeNode parentNode, CodeElement parentElement)
     {
         var children = FilterElements(parentElement.Children);
-        
         foreach (var child in children)
         {
             var childNode = CreateTreeNode(child);
@@ -164,10 +192,17 @@ internal sealed class CodeStructureBrowser : UserControl
 
     private void TreeView_DoubleClick(object? sender, EventArgs e)
     {
-        if (treeView.SelectedNode?.Tag is CodeElement element)
+        if (treeView.SelectedNode?.Tag is not CodeElement element)
         {
-            ElementDoubleClicked?.Invoke(this, new CodeElementEventArgs(element));
+            return;
         }
+
+        if (element.Type == CodeElementType.AccessSection)
+        {
+            return;
+        }
+
+        ElementDoubleClicked?.Invoke(this, new CodeElementEventArgs(element));
     }
 
     private void TreeView_NodeMouseClick(object? sender, TreeNodeMouseClickEventArgs e)
@@ -181,29 +216,37 @@ internal sealed class CodeStructureBrowser : UserControl
     private void ShowContextMenu(CodeElement element, Point location)
     {
         var menu = new ContextMenuStrip();
-        menu.Items.Add($"跳转到第 {element.LineNumber} 行", null, (_, _) =>
+        if (element.Type != CodeElementType.AccessSection)
         {
-            ElementDoubleClicked?.Invoke(this, new CodeElementEventArgs(element));
-        });
-        menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add($"跳转到第 {element.LineNumber} 行", null, (_, _) =>
+            {
+                ElementDoubleClicked?.Invoke(this, new CodeElementEventArgs(element));
+            });
+            menu.Items.Add(new ToolStripSeparator());
+        }
+
         menu.Items.Add($"复制名称: {element.Name}", null, (_, _) =>
         {
             Clipboard.SetText(element.Name);
         });
+
         menu.Show(treeView, location);
     }
 
     private void ShowSettings()
     {
-        var dialog = new CodeStructureSettingsForm(settings);
-        if (dialog.ShowDialog(this) == DialogResult.OK)
+        using var dialog = new CodeStructureSettingsForm(settings);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
         {
-            settings = dialog.ResultSettings;
-            SettingsChanged?.Invoke(this, new CodeStructureSettingsEventArgs(settings.Clone()));
-            if (currentResult != null)
-            {
-                DisplayResult(currentResult);
-            }
+            return;
+        }
+
+        settings = dialog.ResultSettings;
+        EditorConfigurationController.SaveCodeStructureSettings(settings);
+        SettingsChanged?.Invoke(this, new CodeStructureSettingsEventArgs(settings.Clone()));
+        if (currentResult is not null)
+        {
+            DisplayResult(currentResult);
         }
     }
 
@@ -212,7 +255,7 @@ internal sealed class CodeStructureBrowser : UserControl
         var imageList = new ImageList();
         imageList.Images.Add("namespace", CreateColorBitmap(Color.Purple));
         imageList.Images.Add("class", CreateColorBitmap(Color.Blue));
-        imageList.Images.Add("struct", CreateColorBitmap(Color.Cyan));
+        imageList.Images.Add("struct", CreateColorBitmap(Color.CadetBlue));
         imageList.Images.Add("enum", CreateColorBitmap(Color.Orange));
         imageList.Images.Add("function", CreateColorBitmap(Color.Green));
         imageList.Images.Add("method", CreateColorBitmap(Color.LightGreen));
@@ -225,17 +268,17 @@ internal sealed class CodeStructureBrowser : UserControl
         imageList.Images.Add("include", CreateColorBitmap(Color.DarkGray));
         imageList.Images.Add("macro", CreateColorBitmap(Color.Brown));
         imageList.Images.Add("template", CreateColorBitmap(Color.Indigo));
+        imageList.Images.Add("access", CreateColorBitmap(Color.SaddleBrown));
         return imageList;
     }
 
     private static Bitmap CreateColorBitmap(Color color)
     {
         var bmp = new Bitmap(16, 16);
-        using (var g = Graphics.FromImage(bmp))
-        {
-            g.FillRectangle(new SolidBrush(color), 2, 2, 12, 12);
-            g.DrawRectangle(Pens.Black, 2, 2, 11, 11);
-        }
+        using var g = Graphics.FromImage(bmp);
+        using var brush = new SolidBrush(color);
+        g.FillRectangle(brush, 2, 2, 12, 12);
+        g.DrawRectangle(Pens.Black, 2, 2, 11, 11);
         return bmp;
     }
 
@@ -258,6 +301,7 @@ internal sealed class CodeStructureBrowser : UserControl
             CodeElementType.Include => "include",
             CodeElementType.Macro => "macro",
             CodeElementType.Template => "template",
+            CodeElementType.AccessSection => "access",
             _ => "function"
         };
     }
@@ -265,22 +309,22 @@ internal sealed class CodeStructureBrowser : UserControl
 
 internal sealed class CodeElementEventArgs : EventArgs
 {
-    public CodeElement Element { get; }
-
     public CodeElementEventArgs(CodeElement element)
     {
         Element = element;
     }
+
+    public CodeElement Element { get; }
 }
 
 internal sealed class CodeStructureSettingsEventArgs : EventArgs
 {
-    public CodeStructureSettings Settings { get; }
-
     public CodeStructureSettingsEventArgs(CodeStructureSettings settings)
     {
         Settings = settings;
     }
+
+    public CodeStructureSettings Settings { get; }
 }
 
 internal sealed class CodeStructureSettingsForm : Form
@@ -295,7 +339,7 @@ internal sealed class CodeStructureSettingsForm : Form
 
     public CodeStructureSettingsForm(CodeStructureSettings currentSettings)
     {
-        Text = "代码结构浏览器设置";
+        Text = "代码结构设置";
         StartPosition = FormStartPosition.CenterParent;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -311,7 +355,7 @@ internal sealed class CodeStructureSettingsForm : Form
 
         const int startY = 20;
         const int spacing = 32;
-        
+
         chkShowIncludes = new CheckBox
         {
             Text = "显示 #include",
@@ -330,7 +374,7 @@ internal sealed class CodeStructureSettingsForm : Form
 
         chkShowVariables = new CheckBox
         {
-            Text = "显示变量",
+            Text = "显示变量/字段",
             Checked = currentSettings.ShowVariables,
             AutoSize = true,
             Location = new Point(16, startY + spacing * 2)
@@ -338,7 +382,7 @@ internal sealed class CodeStructureSettingsForm : Form
 
         chkSortAlphabetically = new CheckBox
         {
-            Text = "按字母排序",
+            Text = "按名称排序",
             Checked = currentSettings.SortAlphabetically,
             AutoSize = true,
             Location = new Point(16, startY + spacing * 3)
@@ -346,7 +390,7 @@ internal sealed class CodeStructureSettingsForm : Form
 
         chkAutoRefresh = new CheckBox
         {
-            Text = "自动刷新",
+            Text = "切换文件时自动分析",
             Checked = currentSettings.AutoRefresh,
             AutoSize = true,
             Location = new Point(16, startY + spacing * 4)
@@ -365,7 +409,8 @@ internal sealed class CodeStructureSettingsForm : Form
         {
             Dock = DockStyle.Bottom,
             FlowDirection = FlowDirection.RightToLeft,
-            Height = 50,
+            WrapContents = false,
+            Height = 48,
             Padding = new Padding(12, 8, 12, 8)
         };
 
@@ -375,7 +420,7 @@ internal sealed class CodeStructureSettingsForm : Form
             DialogResult = DialogResult.OK,
             Width = 80,
             Height = 28,
-            Margin = new Padding(0, 0, 8, 0)
+            Margin = new Padding(0, 4, 8, 4)
         };
 
         var btnCancel = new Button
@@ -384,7 +429,7 @@ internal sealed class CodeStructureSettingsForm : Form
             DialogResult = DialogResult.Cancel,
             Width = 80,
             Height = 28,
-            Margin = new Padding(0, 0, 0, 0)
+            Margin = new Padding(0, 4, 0, 4)
         };
 
         buttonPanel.Controls.Add(btnCancel);
@@ -392,20 +437,29 @@ internal sealed class CodeStructureSettingsForm : Form
 
         Controls.Add(panel);
         Controls.Add(buttonPanel);
-
         AcceptButton = btnOk;
         CancelButton = btnCancel;
 
-        btnOk.Click += (_, _) =>
+        ResultSettings = currentSettings.Clone();
+        btnOk.Click += (_, _) => CommitSettings();
+        FormClosing += (_, _) =>
         {
-            ResultSettings = new CodeStructureSettings
+            if (DialogResult == DialogResult.OK)
             {
-                ShowIncludes = chkShowIncludes.Checked,
-                ShowMacros = chkShowMacros.Checked,
-                ShowVariables = chkShowVariables.Checked,
-                SortAlphabetically = chkSortAlphabetically.Checked,
-                AutoRefresh = chkAutoRefresh.Checked
-            };
+                CommitSettings();
+            }
+        };
+    }
+
+    private void CommitSettings()
+    {
+        ResultSettings = new CodeStructureSettings
+        {
+            ShowIncludes = chkShowIncludes.Checked,
+            ShowMacros = chkShowMacros.Checked,
+            ShowVariables = chkShowVariables.Checked,
+            SortAlphabetically = chkSortAlphabetically.Checked,
+            AutoRefresh = chkAutoRefresh.Checked
         };
     }
 }

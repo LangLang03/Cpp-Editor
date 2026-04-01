@@ -1123,6 +1123,11 @@ public partial class MainEditorForm
                 menuBuildRun.Enabled = !isBusy;
             }
 
+            if (menuQuickRun is not null)
+            {
+                menuQuickRun.Enabled = !isBusy;
+            }
+
             if (menuDebugStart is not null)
             {
                 menuDebugStart.Enabled = !isBusy;

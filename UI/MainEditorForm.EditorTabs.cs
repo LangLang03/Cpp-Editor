@@ -6,6 +6,7 @@ public partial class MainEditorForm
     private const int TabCloseButtonRightPadding = 8;
 
     private readonly Dictionary<TabPage, EditorDocumentState> editorDocuments = new();
+    private readonly CodeStructureAnalyzer codeStructureAnalyzer = new();
     private TabPage? activeEditorTab;
     private int untitledDocumentCounter = 1;
 
@@ -18,6 +19,10 @@ public partial class MainEditorForm
         public string TextContent { get; set; } = string.Empty;
 
         public bool IsDirty { get; set; }
+
+        public System.Text.Encoding TextEncoding { get; set; } = EditorFileEncodingHelper.DefaultEncoding;
+
+        public string EncodingDisplayName { get; set; } = "UTF-8";
     }
 
     private TabControl CreateEditorTabs()
@@ -93,14 +98,23 @@ public partial class MainEditorForm
         }
     }
 
-    private TabPage CreateDocumentTab(string text, string? filePath, string? displayName, bool markClean)
+    private TabPage CreateDocumentTab(
+        string text,
+        string? filePath,
+        string? displayName,
+        bool markClean,
+        System.Text.Encoding? textEncoding = null,
+        string? encodingDisplayName = null)
     {
+        var effectiveEncoding = textEncoding ?? EditorFileEncodingHelper.DefaultEncoding;
         var state = new EditorDocumentState
         {
             FilePath = string.IsNullOrWhiteSpace(filePath) ? null : Path.GetFullPath(filePath),
             DisplayName = ResolveDocumentDisplayName(filePath, displayName),
             TextContent = NormalizeEditorNewlines(text),
-            IsDirty = !markClean
+            IsDirty = !markClean,
+            TextEncoding = effectiveEncoding,
+            EncodingDisplayName = ResolveEncodingDisplayName(effectiveEncoding, encodingDisplayName)
         };
 
         var tabPage = new TabPage
@@ -198,6 +212,7 @@ public partial class MainEditorForm
 
         if (activeEditorTab == tab && ReferenceEquals(editorControlMain.Parent, tab))
         {
+            UpdateEditorStatusBar();
             return;
         }
 
@@ -229,6 +244,7 @@ public partial class MainEditorForm
 
         // Update code structure browser when tab is activated
         UpdateCodeStructureBrowser();
+        UpdateEditorStatusBar();
     }
 
     private TabPage? FindTabByFilePath(string filePath)
@@ -268,8 +284,14 @@ public partial class MainEditorForm
             return;
         }
 
-        var content = File.ReadAllText(normalizedPath);
-        var tab = CreateDocumentTab(content, normalizedPath, Path.GetFileName(normalizedPath), markClean: true);
+        var readResult = EditorFileEncodingHelper.ReadFileWithDetectedEncoding(normalizedPath);
+        var tab = CreateDocumentTab(
+            readResult.Text,
+            normalizedPath,
+            Path.GetFileName(normalizedPath),
+            markClean: true,
+            textEncoding: readResult.Encoding,
+            encodingDisplayName: readResult.DisplayName);
         tabEditorHost.SelectedTab = tab;
         ActivateDocumentTab(tab);
         editorControlMain?.Focus();
@@ -335,6 +357,7 @@ public partial class MainEditorForm
             activeEditorTab = null;
             currentEditorFilePath = null;
             hasUnsavedChanges = false;
+            UpdateEditorStatusBar();
 
             if (createFallbackIfEmpty)
             {
@@ -425,10 +448,9 @@ public partial class MainEditorForm
     private void TabEditorHost_SelectedIndexChanged(object? sender, EventArgs e)
     {
         ActivateDocumentTab(tabEditorHost.SelectedTab);
-        UpdateCodeStructureBrowser();
     }
 
-    private void UpdateCodeStructureBrowser()
+    private void UpdateCodeStructureBrowser(bool forceRefresh = false)
     {
         if (codeStructureBrowser is null)
         {
@@ -436,13 +458,94 @@ public partial class MainEditorForm
         }
 
         var state = GetSelectedDocumentState();
-        if (state?.FilePath is not null && File.Exists(state.FilePath))
-        {
-            codeStructureBrowser.LoadFile(state.FilePath);
-        }
-        else
+        if (state?.FilePath is null || !File.Exists(state.FilePath))
         {
             codeStructureBrowser.Clear();
+            return;
+        }
+
+        var filePath = Path.GetFullPath(state.FilePath);
+        codeStructureBrowser.SetCurrentFile(filePath);
+
+        var shouldAnalyzeNow = forceRefresh || codeStructureSettings.AutoRefresh;
+        if (!shouldAnalyzeNow)
+        {
+            if (codeStructureAnalyzer.TryGetCachedResult(filePath, out var cachedResult) && cachedResult is not null)
+            {
+                codeStructureBrowser.ShowResult(cachedResult);
+            }
+            else
+            {
+                codeStructureBrowser.ShowStatusMessage("自动分析已关闭，请点击刷新。");
+            }
+
+            return;
+        }
+
+        codeStructureBrowser.ShowStatusMessage("正在分析...");
+
+        var content = ResolveCodeStructureContent(state);
+        var result = codeStructureAnalyzer.Analyze(filePath, content, forceRefresh);
+        codeStructureBrowser.ShowResult(result);
+    }
+
+    private string ResolveCodeStructureContent(EditorDocumentState state)
+    {
+        if (activeEditorTab == tabEditorHost.SelectedTab && editorControlMain is not null)
+        {
+            state.TextContent = GetEditorText();
+            return state.TextContent;
+        }
+
+        if (state.IsDirty)
+        {
+            return state.TextContent;
+        }
+
+        if (!string.IsNullOrEmpty(state.TextContent))
+        {
+            return state.TextContent;
+        }
+
+        if (string.IsNullOrWhiteSpace(state.FilePath) || !File.Exists(state.FilePath))
+        {
+            return string.Empty;
+        }
+
+        return EditorFileEncodingHelper.ReadFileWithEncoding(
+            state.FilePath,
+            state.TextEncoding,
+            state.EncodingDisplayName).Text;
+    }
+
+    private void RefreshCodeStructureBrowser()
+    {
+        UpdateCodeStructureBrowser(forceRefresh: true);
+    }
+
+    private void InvalidateCodeStructureCacheForCurrentFile()
+    {
+        var state = GetSelectedDocumentState();
+        if (!string.IsNullOrWhiteSpace(state?.FilePath))
+        {
+            codeStructureAnalyzer.Invalidate(state.FilePath);
+        }
+    }
+
+    private void InvalidateCodeStructureCacheForPath(string? filePath)
+    {
+        if (!string.IsNullOrWhiteSpace(filePath))
+        {
+            codeStructureAnalyzer.Invalidate(filePath);
+        }
+    }
+
+    private void InvalidateCodeStructureCacheForTab(TabPage? tab)
+    {
+        var state = GetDocumentState(tab);
+        if (!string.IsNullOrWhiteSpace(state?.FilePath))
+        {
+            codeStructureAnalyzer.Invalidate(state.FilePath);
         }
     }
 
@@ -510,6 +613,13 @@ public partial class MainEditorForm
 
         using var borderPen = new Pen(borderColor);
         e.Graphics.DrawRectangle(borderPen, bounds);
+    }
+
+    private static string ResolveEncodingDisplayName(System.Text.Encoding encoding, string? encodingDisplayName)
+    {
+        return string.IsNullOrWhiteSpace(encodingDisplayName)
+            ? EditorFileEncodingHelper.GetDisplayName(encoding)
+            : encodingDisplayName;
     }
 
     private static Color BlendColor(Color baseColor, Color overlayColor, double overlayRatio)

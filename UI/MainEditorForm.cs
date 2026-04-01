@@ -28,7 +28,7 @@ public partial class MainEditorForm : Form
         }
         
         // Load code structure settings
-        var codeStructureSettings = EditorConfigurationController.GetCodeStructureSettings();
+        codeStructureSettings = EditorConfigurationController.GetCodeStructureSettings();
         codeStructureBrowser?.SetSettings(codeStructureSettings);
     }
 
@@ -46,7 +46,8 @@ public partial class MainEditorForm : Form
             rtbBuildOutput,
             dgvCompileErrors,
             rtbRunOutput,
-            rtbRuntimeLog);
+            rtbRuntimeLog,
+            statusEditor);
 
         if (editorControlMain is not null)
         {

@@ -7,6 +7,7 @@ public partial class MainEditorForm
     private ToolStripMenuItem menuFileOpenFolder = null!;
     private ToolStripMenuItem menuFileSave = null!;
     private ToolStripMenuItem menuFileSaveAs = null!;
+    private ToolStripMenuItem menuFileReopenWithEncoding = null!;
     private ToolStripMenuItem menuFileClose = null!;
 
     private ToolStripMenuItem menuEditUndo = null!;
@@ -30,6 +31,7 @@ public partial class MainEditorForm
     private ToolStripMenuItem menuBuildCompile = null!;
     private ToolStripMenuItem menuBuildRebuild = null!;
     private ToolStripMenuItem menuBuildRun = null!;
+    private ToolStripMenuItem menuQuickRun = null!;
     private ToolStripMenuItem menuBuildConfiguration = null!;
     private ToolStripMenuItem menuBuildConfigDebug = null!;
     private ToolStripMenuItem menuBuildConfigRelease = null!;
@@ -70,6 +72,8 @@ public partial class MainEditorForm
         menuFileSaveAs = CreateLeaf("menuFileSaveAs", "另存为...");
         menuFileSaveAs.Click += (_, _) => SaveCurrentDocumentAs();
         RegisterMenuShortcut(EditorCommandIds.FileSaveAs, menuFileSaveAs);
+        menuFileReopenWithEncoding = CreateMenu("menuFileReopenWithEncoding", "\u4EE5\u53E6\u4E00\u79CD\u7F16\u7801\u91CD\u65B0\u6253\u5F00");
+        PopulateReopenWithEncodingMenu(menuFileReopenWithEncoding);
 
         menuFileClose = CreateLeaf("menuFileClose", "关闭文件");
         menuFileClose.Click += (_, _) => CloseCurrentDocument();
@@ -85,6 +89,7 @@ public partial class MainEditorForm
             new ToolStripSeparator(),
             menuFileSave,
             menuFileSaveAs,
+            menuFileReopenWithEncoding,
             menuFileClose,
             new ToolStripSeparator(),
             menuFileExit);
@@ -275,6 +280,10 @@ public partial class MainEditorForm
 
         ((ToolStripMenuItem)menuHelp.DropDownItems[0]).Click += (_, _) => ShowUsageGuide();
         ((ToolStripMenuItem)menuHelp.DropDownItems[1]).Click += (_, _) => ShowAboutDialog();
+        menuQuickRun = CreateLeaf("menuQuickRun", "\u8FD0\u884C");
+        menuQuickRun.Alignment = ToolStripItemAlignment.Right;
+        menuQuickRun.Font = new Font(menu.Font, FontStyle.Bold);
+        menuQuickRun.Click += (_, _) => ExecuteBuildCommand(EditorCommandIds.BuildRun);
 
         menu.Items.AddRange(new ToolStripItem[]
         {
@@ -285,7 +294,8 @@ public partial class MainEditorForm
             menuBuild,
             menuDebug,
             menuTools,
-            menuHelp
+            menuHelp,
+            menuQuickRun
         });
 
         return menu;
@@ -301,6 +311,22 @@ public partial class MainEditorForm
 
         menu.DropDownItems.AddRange(children);
         return menu;
+    }
+
+    private void PopulateReopenWithEncodingMenu(ToolStripMenuItem parentMenu)
+    {
+        parentMenu.DropDownItems.Clear();
+
+        var index = 0;
+        foreach (var option in EditorFileEncodingHelper.GetCommonEncodings())
+        {
+            var capturedEncoding = option.Encoding;
+            var capturedLabel = option.Label;
+            var item = CreateLeaf($"menuFileReopenEncoding{index}", capturedLabel);
+            item.Click += (_, _) => ReopenCurrentDocumentWithEncoding(capturedEncoding, capturedLabel);
+            parentMenu.DropDownItems.Add(item);
+            index++;
+        }
     }
 
     private static ToolStripMenuItem CreateLeaf(string name, string text)
