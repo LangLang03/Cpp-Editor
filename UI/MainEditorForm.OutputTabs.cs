@@ -66,6 +66,17 @@ public partial class MainEditorForm
         rtbRunOutput.ContextMenuStrip = CreateOutputContextMenu(rtbRunOutput);
         runOutputPage.Controls.Add(rtbRunOutput);
 
+        var debugVariablesPage = new TabPage
+        {
+            Name = "tabPageDebugVariables",
+            Text = "调试变量",
+            Padding = new Padding(0),
+            UseVisualStyleBackColor = true
+        };
+
+        dgvDebugVariables = CreateDebugVariablesGrid();
+        debugVariablesPage.Controls.Add(dgvDebugVariables);
+
         var runtimeLogPage = new TabPage
         {
             Name = "tabPageRuntimeLog",
@@ -88,6 +99,7 @@ public partial class MainEditorForm
         bottomTabs.Controls.Add(buildOutputPage);
         bottomTabs.Controls.Add(compileErrorsPage);
         bottomTabs.Controls.Add(runOutputPage);
+        bottomTabs.Controls.Add(debugVariablesPage);
         bottomTabs.Controls.Add(runtimeLogPage);
 
         tabBottom = bottomTabs; // 很重要
@@ -264,6 +276,73 @@ public partial class MainEditorForm
         return grid;
     }
 
+    private DataGridView CreateDebugVariablesGrid()
+    {
+        var grid = new DataGridView
+        {
+            Name = "dgvDebugVariables",
+            Dock = DockStyle.Fill,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            AllowUserToResizeRows = false,
+            BackgroundColor = SystemColors.Window,
+            MultiSelect = false,
+            ReadOnly = true,
+            RowHeadersVisible = false,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+            AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.DisplayedCells
+        };
+
+        var columnName = new DataGridViewTextBoxColumn
+        {
+            Name = "columnVariableName",
+            HeaderText = "名称",
+            ReadOnly = true,
+            Width = 260
+        };
+
+        var columnValue = new DataGridViewTextBoxColumn
+        {
+            Name = "columnVariableValue",
+            HeaderText = "值",
+            ReadOnly = true,
+            AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
+        };
+
+        grid.Columns.AddRange(columnName, columnValue);
+        return grid;
+    }
+
+    private void UpdateDebugVariablesGrid(IReadOnlyList<DebugVariableValue> variables)
+    {
+        if (dgvDebugVariables is null)
+        {
+            return;
+        }
+
+        void Apply()
+        {
+            dgvDebugVariables.Rows.Clear();
+            foreach (var variable in variables)
+            {
+                dgvDebugVariables.Rows.Add(variable.Name, variable.Value);
+            }
+        }
+
+        if (dgvDebugVariables.InvokeRequired)
+        {
+            dgvDebugVariables.BeginInvoke(new Action(Apply));
+            return;
+        }
+
+        Apply();
+    }
+
+    private void ClearDebugVariablesGrid()
+    {
+        UpdateDebugVariablesGrid(Array.Empty<DebugVariableValue>());
+    }
+
     private ContextMenuStrip CreateCompileErrorsContextMenu(DataGridView grid)
     {
         var menu = new ContextMenuStrip();
@@ -409,12 +488,9 @@ public partial class MainEditorForm
         _ = int.TryParse(lineText, out var lineNumber);
         _ = int.TryParse(columnText, out var columnNumber);
 
-        if (editorControlMain is not null && lineNumber > 0)
+        if (lineNumber > 0)
         {
-            editorControlMain.GotoPosition(
-                Math.Max(0, lineNumber - 1),
-                Math.Max(0, columnNumber - 1));
-            editorControlMain.Focus();
+            GoToLineInEditor(lineNumber, Math.Max(0, columnNumber - 1));
         }
     }
 

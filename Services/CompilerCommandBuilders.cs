@@ -36,6 +36,12 @@ internal sealed class MsvcCompilerCommandBuilder : ICompilerCommandBuilder
             arguments.Add("/nologo");
         }
 
+        if (!arguments.Any(IsMsvcCharsetArgument))
+        {
+            // Keep MSVC source decoding stable for UTF-8 files (with or without BOM).
+            arguments.Add("/utf-8");
+        }
+
         foreach (var sourceFilePath in sourceFilePaths)
         {
             if (!string.IsNullOrWhiteSpace(sourceFilePath))
@@ -44,8 +50,25 @@ internal sealed class MsvcCompilerCommandBuilder : ICompilerCommandBuilder
             }
         }
 
+        if (!arguments.Any(IsMsvcUser32LibraryArgument))
+        {
+            arguments.Add("user32.lib");
+        }
+
         arguments.Add($"/Fe:{outputExecutablePath}");
         return arguments;
+    }
+
+    private static bool IsMsvcCharsetArgument(string argument)
+    {
+        return argument.Equals("/utf-8", StringComparison.OrdinalIgnoreCase)
+            || argument.StartsWith("/source-charset", StringComparison.OrdinalIgnoreCase)
+            || argument.StartsWith("/execution-charset", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsMsvcUser32LibraryArgument(string argument)
+    {
+        return argument.EndsWith("user32.lib", StringComparison.OrdinalIgnoreCase);
     }
 }
 

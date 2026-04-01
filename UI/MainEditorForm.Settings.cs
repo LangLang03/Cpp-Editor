@@ -69,16 +69,22 @@ public partial class MainEditorForm
         EditorUiSettingsController.Save(uiSettings);
     }
 
-    private void OpenSettingsDialog()
+    private void OpenSettingsDialog(string? initialPageName = null)
     {
         var currentPairFormat = EditorAutoPairController.GetPairFormat();
+        var workspaceRoot = ResolvePreferredWorkspaceRoot();
+        var compileListConfig = WorkspaceCompileListController.Load(workspaceRoot);
         var currentShortcutBindings = GetShortcutBindingsForEditing();
         using var dialog = new EditorSettingsForm(
             currentPairFormat,
             uiSettings,
             explorerSettings,
             cppTemplateSettings,
-            currentShortcutBindings);
+            currentShortcutBindings,
+            toolchainSettings,
+            workspaceRoot,
+            compileListConfig.Include,
+            initialPageName);
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
             return;
@@ -87,32 +93,31 @@ public partial class MainEditorForm
         EditorAutoPairController.SetPairFormat(dialog.AutoPairFormat);
         explorerSettings = dialog.ResultExplorerSettings;
         cppTemplateSettings = dialog.ResultCppTemplateSettings;
+        toolchainSettings = dialog.ResultToolchainSettings;
+        var updatedCompileListPatterns = dialog.ResultCompileListPatterns;
         EditorExplorerSettingsController.Save(explorerSettings);
         EditorCppTemplateSettingsController.Save(cppTemplateSettings);
+        EditorToolchainSettingsController.Save(toolchainSettings);
+        var compileListChanged = !compileListConfig.Include.SequenceEqual(updatedCompileListPatterns, StringComparer.OrdinalIgnoreCase);
+        if (compileListChanged)
+        {
+            WorkspaceCompileListController.Save(workspaceRoot, updatedCompileListPatterns);
+        }
         SaveShortcutBindingsFromSettings(dialog.ResultShortcutBindings);
         ApplyUiSettings(dialog.ResultUiSettings);
         PersistUiSettingsFromCurrentState();
 
         ApplyEditorLanguageConfiguration(currentEditorFilePath ?? "untitled.cpp");
         AppendBuildOutput("Settings applied");
+        if (compileListChanged)
+        {
+            AppendBuildOutput($"编译列表已保存: {WorkspaceCompileListController.GetConfigPath(workspaceRoot)}");
+        }
     }
 
     private void OpenCompilerSettingsDialog()
     {
-        var workspaceRoot = ResolvePreferredWorkspaceRoot();
-        var compileListConfig = WorkspaceCompileListController.Load(workspaceRoot);
-
-        using var dialog = new ToolchainSettingsForm(toolchainSettings, workspaceRoot, compileListConfig.Include);
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-        {
-            return;
-        }
-
-        toolchainSettings = dialog.ResultSettings;
-        EditorToolchainSettingsController.Save(toolchainSettings);
-        WorkspaceCompileListController.Save(workspaceRoot, dialog.ResultCompileListPatterns);
-        AppendBuildOutput("编译器设置已保存。");
-        AppendBuildOutput($"编译列表已保存: {WorkspaceCompileListController.GetConfigPath(workspaceRoot)}");
+        OpenSettingsDialog("toolchain");
     }
 
     private string ResolvePreferredWorkspaceRoot()

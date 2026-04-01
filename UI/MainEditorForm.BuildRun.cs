@@ -75,6 +75,12 @@ public partial class MainEditorForm
 
     private async Task ExecuteBuildCommandAsync(string commandId)
     {
+        if (IsDebuggerSessionActive())
+        {
+            AppendBuildOutput("调试进行中，无法执行编译/运行，请先停止调试。");
+            return;
+        }
+
         if (!TryBeginBuildRunOperation(commandId))
         {
             AppendBuildOutput("已有正在执行的编译/运行任务，请先停止。");
@@ -1106,36 +1112,58 @@ public partial class MainEditorForm
             isBusy = isBuildRunOperationActive;
         }
 
+        var hasActiveDebugger = IsDebuggerSessionActive();
+        var isDebuggerIdlePaused = hasActiveDebugger && isDebuggerPaused;
+        var isDebuggerRunning = hasActiveDebugger && !isDebuggerPaused;
+        var isDebugControlsLocked = isDebuggerCommandInFlight || isBusy;
+        var canStartDebugger = !isBusy && (!hasActiveDebugger || isDebuggerIdlePaused) && !isDebuggerCommandInFlight;
+
         void Apply()
         {
             if (menuBuildCompile is not null)
             {
-                menuBuildCompile.Enabled = !isBusy;
+                menuBuildCompile.Enabled = !isBusy && !hasActiveDebugger;
             }
 
             if (menuBuildRebuild is not null)
             {
-                menuBuildRebuild.Enabled = !isBusy;
+                menuBuildRebuild.Enabled = !isBusy && !hasActiveDebugger;
             }
 
             if (menuBuildRun is not null)
             {
-                menuBuildRun.Enabled = !isBusy;
+                menuBuildRun.Enabled = !isBusy && !hasActiveDebugger;
             }
 
             if (menuQuickRun is not null)
             {
-                menuQuickRun.Enabled = !isBusy;
+                menuQuickRun.Enabled = !isBusy && !hasActiveDebugger;
             }
 
             if (menuDebugStart is not null)
             {
-                menuDebugStart.Enabled = !isBusy;
+                menuDebugStart.Enabled = canStartDebugger;
+                menuDebugStart.Text = hasActiveDebugger ? "继续调试" : "开始调试";
+            }
+
+            if (menuDebugStepInto is not null)
+            {
+                menuDebugStepInto.Enabled = isDebuggerIdlePaused && !isDebugControlsLocked;
+            }
+
+            if (menuDebugStepOver is not null)
+            {
+                menuDebugStepOver.Enabled = isDebuggerIdlePaused && !isDebugControlsLocked;
+            }
+
+            if (menuDebugStepOut is not null)
+            {
+                menuDebugStepOut.Enabled = isDebuggerIdlePaused && canDebuggerStepOut && !isDebugControlsLocked;
             }
 
             if (menuDebugStop is not null)
             {
-                menuDebugStop.Enabled = isBusy;
+                menuDebugStop.Enabled = isBusy || isDebuggerRunning || isDebuggerIdlePaused;
             }
         }
 

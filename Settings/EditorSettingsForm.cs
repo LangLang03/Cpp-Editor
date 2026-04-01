@@ -15,8 +15,10 @@ internal sealed class EditorSettingsForm : Form
     private readonly Panel pageLayout;
     private readonly Panel pageExplorer;
     private readonly Panel pageShortcuts;
+    private readonly Panel pageToolchain;
     private readonly DataGridView dgvShortcuts;
     private readonly List<ShortcutBindingItem> shortcutBindings;
+    private readonly Dictionary<ToolchainId, string> argumentsByToolchain;
 
     private TextBox textAutoPairs = null!;
     private TextBox txtTemplateCpp = null!;
@@ -35,14 +37,36 @@ internal sealed class EditorSettingsForm : Form
     private Label lblRecorderHint = null!;
     private Label lblConflictStatus = null!;
 
+    private TextBox txtWorkspaceRoot = null!;
+    private TextBox txtCompilerPath = null!;
+    private TextBox txtToolchainRoot = null!;
+    private TextBox txtSetupScript = null!;
+    private TextBox txtDebuggerPath = null!;
+    private TextBox txtCompilerArgs = null!;
+    private TextBox txtBuildOutputDirectory = null!;
+    private TextBox txtCompileList = null!;
+    private Button btnRefreshProbe = null!;
+    private readonly Dictionary<ToolchainId, RadioButton> toolchainRadioById = new();
+    private readonly Dictionary<ToolchainId, Label> toolchainStatusById = new();
+    private IReadOnlyList<ToolchainProbeResult> probeResults = Array.Empty<ToolchainProbeResult>();
+    private ToolchainId selectedToolchainId;
+    private bool isUpdatingToolchainSelection;
+
     internal EditorSettingsForm(
         string autoPairFormat,
         UiSettings uiSettings,
         ExplorerSettingsConfig explorerSettings,
         CppTemplateSettingsConfig cppTemplateSettings,
-        IReadOnlyList<ShortcutBindingItem> shortcutItems)
+        IReadOnlyList<ShortcutBindingItem> shortcutItems,
+        ToolchainSettingsConfig toolchainSettings,
+        string workspaceRootPath,
+        IReadOnlyList<string> compileListPatterns,
+        string? initialPageName = null)
     {
         shortcutBindings = shortcutItems.Select(item => item.Clone()).ToList();
+        selectedToolchainId = EditorToolchainSettingsController.GetSelectedToolchainId(toolchainSettings);
+        argumentsByToolchain = EditorToolchainSettingsController.GetArgumentsByToolchain(toolchainSettings);
+        EnsureArgumentsMapHasAllToolchains(argumentsByToolchain);
 
         Text = "设置";
         StartPosition = FormStartPosition.CenterParent;
@@ -72,6 +96,7 @@ internal sealed class EditorSettingsForm : Form
         var rootWorkspace = new TreeNode("工作区");
         rootWorkspace.Nodes.Add(new TreeNode("布局") { Name = "layout" });
         rootWorkspace.Nodes.Add(new TreeNode("资源管理器") { Name = "explorer" });
+        rootWorkspace.Nodes.Add(new TreeNode("编译") { Name = "toolchain" });
         treeSettings.Nodes.Add(rootEditor);
         treeSettings.Nodes.Add(rootWorkspace);
         treeSettings.ExpandAll();
@@ -99,17 +124,20 @@ internal sealed class EditorSettingsForm : Form
         pageLayout = new Panel { Dock = DockStyle.Fill };
         pageExplorer = new Panel { Dock = DockStyle.Fill };
         pageShortcuts = new Panel { Dock = DockStyle.Fill };
+        pageToolchain = new Panel { Dock = DockStyle.Fill };
         panelHost.Controls.Add(pageAutoPairs);
         panelHost.Controls.Add(pageCppTemplates);
         panelHost.Controls.Add(pageLayout);
         panelHost.Controls.Add(pageExplorer);
         panelHost.Controls.Add(pageShortcuts);
+        panelHost.Controls.Add(pageToolchain);
 
         BuildAutoPairPage(pageAutoPairs, autoPairFormat);
         BuildCppTemplatePage(pageCppTemplates, cppTemplateSettings);
         BuildLayoutPage(pageLayout, uiSettings);
         BuildExplorerPage(pageExplorer, explorerSettings);
         dgvShortcuts = BuildShortcutPage(pageShortcuts);
+        BuildToolchainPage(pageToolchain, toolchainSettings, workspaceRootPath, compileListPatterns);
 
         var bottomButtons = new FlowLayoutPanel
         {
@@ -140,7 +168,7 @@ internal sealed class EditorSettingsForm : Form
         CancelButton = btnCancel;
         FormClosing += EditorSettingsForm_FormClosing;
 
-        treeSettings.SelectedNode = treeSettings.Nodes[0].Nodes[0];
+        treeSettings.SelectedNode = FindSettingsNodeByName(initialPageName ?? "auto_pairs") ?? treeSettings.Nodes[0].Nodes[0];
         RefreshShortcutConflicts();
     }
 
@@ -172,6 +200,404 @@ internal sealed class EditorSettingsForm : Form
     };
 
     internal IReadOnlyList<ShortcutBindingItem> ResultShortcutBindings => shortcutBindings.Select(item => item.Clone()).ToList();
+
+    internal ToolchainSettingsConfig ResultToolchainSettings
+    {
+        get
+        {
+            CommitCurrentToolchainArguments();
+            var selectedKey = ToolchainCatalog.ToConfigValue(selectedToolchainId);
+            var argsMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in argumentsByToolchain)
+            {
+                argsMap[ToolchainCatalog.ToConfigValue(pair.Key)] = pair.Value;
+            }
+
+            return new ToolchainSettingsConfig
+            {
+                SelectedToolchainId = selectedKey,
+                ArgumentsByToolchain = argsMap,
+                CompilerArguments = argsMap.TryGetValue(selectedKey, out var selectedArguments)
+                    ? selectedArguments
+                    : ToolchainCatalog.GetDefaultArguments(selectedToolchainId),
+                BuildOutputDirectory = txtBuildOutputDirectory.Text.Trim(),
+                CompilerPath = string.Empty,
+                SetupScriptPath = string.Empty,
+                ToolchainRootPath = string.Empty,
+                CompilerArchivePath = string.Empty,
+                GppPath = string.Empty,
+                DebuggerPath = txtDebuggerPath.Text.Trim(),
+                GdbPath = txtDebuggerPath.Text.Trim()
+            };
+        }
+    }
+
+    internal IReadOnlyList<string> ResultCompileListPatterns =>
+        WorkspaceCompileListController.ParsePatternsFromText(txtCompileList.Text);
+
+    private void BuildToolchainPage(
+        Control host,
+        ToolchainSettingsConfig currentSettings,
+        string workspaceRootPath,
+        IReadOnlyList<string> compileListPatterns)
+    {
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2
+        };
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        host.Controls.Add(layout);
+
+        var title = new Label
+        {
+            Text = "编译设置",
+            Font = new Font("Microsoft YaHei UI", 12f, FontStyle.Bold),
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 8)
+        };
+        layout.Controls.Add(title, 0, 0);
+
+        var grid = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 10,
+            AutoScroll = true
+        };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220f));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 280f));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.Controls.Add(grid, 0, 1);
+
+        txtWorkspaceRoot = CreateToolchainReadOnlyRow(grid, 0, "当前工作区根目录", workspaceRootPath);
+        var selector = CreateToolchainSelectorPanel(out var refreshButton);
+        btnRefreshProbe = refreshButton;
+        AddToolchainControlRow(grid, 1, "工具链（单选）", selector);
+        txtCompilerPath = CreateToolchainReadOnlyRow(grid, 2, "编译器路径", string.Empty);
+        txtToolchainRoot = CreateToolchainReadOnlyRow(grid, 3, "工具链根目录", string.Empty);
+        txtSetupScript = CreateToolchainReadOnlyRow(grid, 4, "MSVC 环境脚本", string.Empty);
+        txtDebuggerPath = CreateToolchainTextRow(
+            grid,
+            5,
+            "调试器路径（可选）",
+            string.IsNullOrWhiteSpace(currentSettings.DebuggerPath) ? currentSettings.GdbPath : currentSettings.DebuggerPath);
+        txtCompilerArgs = CreateToolchainTextRow(grid, 6, "编译参数", string.Empty);
+        txtBuildOutputDirectory = CreateToolchainTextRow(grid, 7, "输出目录（相对工作区）", currentSettings.BuildOutputDirectory);
+        txtCompileList = CreateToolchainMultilineRow(
+            grid,
+            8,
+            "编译列表（每行一条）",
+            WorkspaceCompileListController.ToMultilineText(compileListPatterns));
+
+        var hint = new Label
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            ForeColor = Color.DimGray,
+            Text =
+                "探测顺序：PATH -> 常见目录；内置目录单独检测。\r\n" +
+                "不可用工具链会禁用，不会在编译时自动回退。\r\n" +
+                "调试器留空时按工具链自动探测；手动填写时需与工具链匹配（MSVC->cdb，GCC/MinGW->gdb，Clang->lldb）。\r\n" +
+                "编译列表支持：path/xx.cpp 与 xx/*.cpp（保存到 .cppeditor/compile-list.json）。"
+        };
+        grid.Controls.Add(hint, 0, 9);
+        grid.SetColumnSpan(hint, 2);
+
+        btnRefreshProbe.Click += (_, _) => RefreshProbeResults(preserveSelection: true);
+        RefreshProbeResults(preserveSelection: false);
+    }
+
+    private void RefreshProbeResults(bool preserveSelection)
+    {
+        if (preserveSelection)
+        {
+            CommitCurrentToolchainArguments();
+        }
+
+        probeResults = EditorToolchainSettingsController.DiscoverToolchains();
+        foreach (var item in ToolchainCatalog.GetItems())
+        {
+            var probe = FindProbeResult(item.Id);
+            var radio = toolchainRadioById[item.Id];
+            var statusLabel = toolchainStatusById[item.Id];
+
+            if (probe?.IsAvailable == true)
+            {
+                radio.Enabled = true;
+                statusLabel.ForeColor = Color.DarkGreen;
+                statusLabel.Text = $"{probe.Source}: {probe.CompilerPath}";
+            }
+            else
+            {
+                radio.Enabled = false;
+                statusLabel.ForeColor = Color.DimGray;
+                statusLabel.Text = $"不可用: {probe?.UnavailableReason ?? "未找到"}";
+            }
+        }
+
+        var hasAvailableSelected = FindProbeResult(selectedToolchainId)?.IsAvailable == true;
+        if (!hasAvailableSelected)
+        {
+            var firstAvailable = probeResults.FirstOrDefault(item => item.IsAvailable);
+            if (firstAvailable is not null)
+            {
+                selectedToolchainId = firstAvailable.Id;
+            }
+        }
+
+        isUpdatingToolchainSelection = true;
+        try
+        {
+            foreach (var pair in toolchainRadioById)
+            {
+                pair.Value.Checked = pair.Key == selectedToolchainId && pair.Value.Enabled;
+            }
+        }
+        finally
+        {
+            isUpdatingToolchainSelection = false;
+        }
+
+        UpdateSelectedToolchainDetails();
+    }
+
+    private ToolchainProbeResult? FindProbeResult(ToolchainId id)
+    {
+        return probeResults.FirstOrDefault(item => item.Id == id);
+    }
+
+    private void ToolchainRadio_CheckedChanged(object? sender, EventArgs e)
+    {
+        if (isUpdatingToolchainSelection || sender is not RadioButton radio || !radio.Checked)
+        {
+            return;
+        }
+
+        if (radio.Tag is not ToolchainId id)
+        {
+            return;
+        }
+
+        if (id == selectedToolchainId)
+        {
+            return;
+        }
+
+        CommitCurrentToolchainArguments();
+        selectedToolchainId = id;
+        UpdateSelectedToolchainDetails();
+    }
+
+    private void UpdateSelectedToolchainDetails()
+    {
+        var probe = FindProbeResult(selectedToolchainId);
+        if (probe?.IsAvailable == true)
+        {
+            txtCompilerPath.Text = probe.CompilerPath;
+            txtToolchainRoot.Text = probe.ToolchainRootPath;
+            txtSetupScript.Text = string.IsNullOrWhiteSpace(probe.SetupScriptPath) ? "(无)" : probe.SetupScriptPath;
+        }
+        else
+        {
+            txtCompilerPath.Text = string.Empty;
+            txtToolchainRoot.Text = string.Empty;
+            txtSetupScript.Text = string.Empty;
+        }
+
+        txtCompilerArgs.Text = argumentsByToolchain.TryGetValue(selectedToolchainId, out var args)
+            ? args
+            : ToolchainCatalog.GetDefaultArguments(selectedToolchainId);
+    }
+
+    private void CommitCurrentToolchainArguments()
+    {
+        argumentsByToolchain[selectedToolchainId] = string.IsNullOrWhiteSpace(txtCompilerArgs.Text)
+            ? ToolchainCatalog.GetDefaultArguments(selectedToolchainId)
+            : txtCompilerArgs.Text.Trim();
+    }
+
+    private static void EnsureArgumentsMapHasAllToolchains(Dictionary<ToolchainId, string> map)
+    {
+        foreach (var item in ToolchainCatalog.GetItems())
+        {
+            if (!map.TryGetValue(item.Id, out var value) || string.IsNullOrWhiteSpace(value))
+            {
+                map[item.Id] = ToolchainCatalog.GetDefaultArguments(item.Id);
+            }
+        }
+    }
+
+    private Panel CreateToolchainSelectorPanel(out Button refreshButton)
+    {
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2
+        };
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+        var topBar = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            FlowDirection = FlowDirection.RightToLeft
+        };
+
+        refreshButton = new Button
+        {
+            Text = "刷新探测",
+            AutoSize = true
+        };
+
+        topBar.Controls.Add(refreshButton);
+        panel.Controls.Add(topBar, 0, 0);
+
+        var listViewport = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            Padding = new Padding(0, 4, 0, 0)
+        };
+
+        var list = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 2,
+            RowCount = ToolchainCatalog.GetItems().Count
+        };
+        list.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180f));
+        list.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+
+        var rowIndex = 0;
+        foreach (var item in ToolchainCatalog.GetItems())
+        {
+            list.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var radio = new RadioButton
+            {
+                AutoSize = true,
+                Text = item.DisplayName,
+                Tag = item.Id,
+                Margin = new Padding(0, 4, 8, 4)
+            };
+            radio.CheckedChanged += ToolchainRadio_CheckedChanged;
+
+            var status = new Label
+            {
+                Dock = DockStyle.Fill,
+                AutoEllipsis = true,
+                Margin = new Padding(0, 7, 0, 4),
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            toolchainRadioById[item.Id] = radio;
+            toolchainStatusById[item.Id] = status;
+
+            list.Controls.Add(radio, 0, rowIndex);
+            list.Controls.Add(status, 1, rowIndex);
+            rowIndex++;
+        }
+
+        listViewport.Controls.Add(list);
+        panel.Controls.Add(listViewport, 0, 1);
+        return panel;
+    }
+
+    private static void AddToolchainControlRow(TableLayoutPanel host, int rowIndex, string labelText, Control control)
+    {
+        var label = new Label
+        {
+            Text = labelText,
+            AutoSize = true,
+            Margin = new Padding(0, 9, 8, 8)
+        };
+        host.Controls.Add(label, 0, rowIndex);
+
+        control.Margin = new Padding(0, 4, 8, 4);
+        host.Controls.Add(control, 1, rowIndex);
+    }
+
+    private static TextBox CreateToolchainReadOnlyRow(TableLayoutPanel host, int rowIndex, string labelText, string value)
+    {
+        var label = new Label
+        {
+            Text = labelText,
+            AutoSize = true,
+            Margin = new Padding(0, 9, 8, 8)
+        };
+        host.Controls.Add(label, 0, rowIndex);
+
+        var textBox = new TextBox
+        {
+            Text = value ?? string.Empty,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 4, 8, 4),
+            ReadOnly = true
+        };
+        host.Controls.Add(textBox, 1, rowIndex);
+        return textBox;
+    }
+
+    private static TextBox CreateToolchainTextRow(TableLayoutPanel host, int rowIndex, string labelText, string value)
+    {
+        var label = new Label
+        {
+            Text = labelText,
+            AutoSize = true,
+            Margin = new Padding(0, 9, 8, 8)
+        };
+        host.Controls.Add(label, 0, rowIndex);
+
+        var textBox = new TextBox
+        {
+            Text = value ?? string.Empty,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 4, 8, 4)
+        };
+        host.Controls.Add(textBox, 1, rowIndex);
+        return textBox;
+    }
+
+    private static TextBox CreateToolchainMultilineRow(TableLayoutPanel host, int rowIndex, string labelText, string value)
+    {
+        var label = new Label
+        {
+            Text = labelText,
+            AutoSize = true,
+            Margin = new Padding(0, 9, 8, 8)
+        };
+        host.Controls.Add(label, 0, rowIndex);
+
+        var textBox = new TextBox
+        {
+            Text = value ?? string.Empty,
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 4, 8, 4),
+            Multiline = true,
+            ScrollBars = ScrollBars.Both,
+            AcceptsReturn = true,
+            WordWrap = false,
+            Height = 160
+        };
+        host.Controls.Add(textBox, 1, rowIndex);
+        return textBox;
+    }
 
     private void BuildAutoPairPage(Control host, string autoPairFormat)
     {
@@ -789,6 +1215,7 @@ internal sealed class EditorSettingsForm : Form
         pageLayout.Visible = e.Node?.Name == "layout";
         pageExplorer.Visible = e.Node?.Name == "explorer";
         pageShortcuts.Visible = e.Node?.Name == "shortcuts";
+        pageToolchain.Visible = e.Node?.Name == "toolchain";
     }
 
     private void EditorSettingsForm_FormClosing(object? sender, FormClosingEventArgs e)

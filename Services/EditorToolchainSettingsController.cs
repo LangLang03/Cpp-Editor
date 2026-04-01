@@ -51,7 +51,20 @@ internal static class EditorToolchainSettingsController
     internal static bool TryResolveDebuggerExecutable(ToolchainSettingsConfig settings, out string debuggerPath, out string detail)
     {
         debuggerPath = string.Empty;
-        detail = "调试器接入尚未实现。";
-        return false;
+        detail = string.Empty;
+        if (!Resolver.TryResolveSelected(settings, out var toolchain, out var resolveDetail))
+        {
+            detail = resolveDetail;
+            return false;
+        }
+
+        if (!DebuggerExecutableResolver.TryResolve(settings, toolchain, out var resolution, out detail))
+        {
+            return false;
+        }
+
+        debuggerPath = resolution.ExecutablePath;
+        detail = resolution.Detail;
+        return true;
     }
 }

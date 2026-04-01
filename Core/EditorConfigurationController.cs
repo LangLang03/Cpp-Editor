@@ -505,6 +505,7 @@ internal static class EditorConfigurationController
         var input = section ?? ToolchainSettingsConfig.CreateDefault();
         var selectedToolchainId = ResolveSelectedToolchainId(input);
         var selectedKey = ToolchainCatalog.ToConfigValue(selectedToolchainId);
+        var debuggerPath = NormalizeDebuggerPath(input.DebuggerPath, input.GdbPath);
 
         var argumentsByToolchain = ToolchainCatalog.CreateDefaultArgumentsMap();
         if (input.ArgumentsByToolchain is not null)
@@ -545,8 +546,29 @@ internal static class EditorConfigurationController
                 : input.BuildOutputDirectory.Trim(),
             CompilerArchivePath = string.Empty,
             GppPath = string.Empty,
-            GdbPath = string.Empty
+            DebuggerPath = debuggerPath,
+            GdbPath = debuggerPath
         };
+    }
+
+    private static string NormalizeDebuggerPath(string? debuggerPath, string? legacyGdbPath)
+    {
+        var raw = string.IsNullOrWhiteSpace(debuggerPath)
+            ? legacyGdbPath
+            : debuggerPath;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return Path.GetFullPath(raw.Trim().Trim('"'));
+        }
+        catch
+        {
+            return raw.Trim().Trim('"');
+        }
     }
 
     private static bool ToolchainSectionEquals(ToolchainSettingsConfig? left, ToolchainSettingsConfig right)
@@ -559,6 +581,7 @@ internal static class EditorConfigurationController
         return string.Equals(left.SelectedToolchainId, right.SelectedToolchainId, StringComparison.OrdinalIgnoreCase) &&
                string.Equals(left.CompilerArguments, right.CompilerArguments, StringComparison.Ordinal) &&
                string.Equals(left.BuildOutputDirectory, right.BuildOutputDirectory, StringComparison.Ordinal) &&
+               string.Equals(NormalizeDebuggerPath(left.DebuggerPath, left.GdbPath), right.DebuggerPath, StringComparison.OrdinalIgnoreCase) &&
                StringDictionaryEquals(left.ArgumentsByToolchain, right.ArgumentsByToolchain);
     }
 
@@ -1018,6 +1041,8 @@ internal sealed class ToolchainSettingsConfig
 
     public string GppPath { get; set; } = string.Empty;
 
+    public string DebuggerPath { get; set; } = string.Empty;
+
     public string GdbPath { get; set; } = string.Empty;
 
     public string CompilerArguments { get; set; } = "/std:c++17 /EHsc /Zi /nologo";
@@ -1035,6 +1060,7 @@ internal sealed class ToolchainSettingsConfig
             CompilerArchivePath = string.Empty,
             ToolchainRootPath = string.Empty,
             GppPath = string.Empty,
+            DebuggerPath = string.Empty,
             GdbPath = string.Empty,
             CompilerArguments = "/std:c++17 /EHsc /Zi /nologo",
             BuildOutputDirectory = @".cppeditor\build"
@@ -1054,6 +1080,7 @@ internal sealed class ToolchainSettingsConfig
             CompilerArchivePath = CompilerArchivePath,
             ToolchainRootPath = ToolchainRootPath,
             GppPath = GppPath,
+            DebuggerPath = string.IsNullOrWhiteSpace(DebuggerPath) ? GdbPath : DebuggerPath,
             GdbPath = GdbPath,
             CompilerArguments = CompilerArguments,
             BuildOutputDirectory = BuildOutputDirectory

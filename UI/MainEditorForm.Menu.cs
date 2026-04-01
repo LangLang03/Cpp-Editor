@@ -39,6 +39,7 @@ public partial class MainEditorForm
     private ToolStripMenuItem menuDebugStart = null!;
     private ToolStripMenuItem menuDebugStepOver = null!;
     private ToolStripMenuItem menuDebugStepInto = null!;
+    private ToolStripMenuItem menuDebugStepOut = null!;
     private ToolStripMenuItem menuDebugStop = null!;
 
     private ToolStripMenuItem menuToolsCompilerSettings = null!;
@@ -72,7 +73,8 @@ public partial class MainEditorForm
         menuFileSaveAs = CreateLeaf("menuFileSaveAs", "另存为...");
         menuFileSaveAs.Click += (_, _) => SaveCurrentDocumentAs();
         RegisterMenuShortcut(EditorCommandIds.FileSaveAs, menuFileSaveAs);
-        menuFileReopenWithEncoding = CreateMenu("menuFileReopenWithEncoding", "\u4EE5\u53E6\u4E00\u79CD\u7F16\u7801\u91CD\u65B0\u6253\u5F00");
+
+        menuFileReopenWithEncoding = CreateMenu("menuFileReopenWithEncoding", "以另一种编码重新打开");
         PopulateReopenWithEncodingMenu(menuFileReopenWithEncoding);
 
         menuFileClose = CreateLeaf("menuFileClose", "关闭文件");
@@ -82,7 +84,9 @@ public partial class MainEditorForm
         var menuFileExit = CreateLeaf("menuFileExit", "退出");
         menuFileExit.Click += (_, _) => Close();
 
-        var menuFile = CreateMenu("menuFile", "文件",
+        var menuFile = CreateMenu(
+            "menuFile",
+            "文件",
             menuFileNew,
             menuFileOpen,
             menuFileOpenFolder,
@@ -130,7 +134,9 @@ public partial class MainEditorForm
         menuEditGoToLine.Click += (_, _) => GoToLineInEditor();
         RegisterMenuShortcut(EditorCommandIds.EditGoToLine, menuEditGoToLine);
 
-        var menuEdit = CreateMenu("menuEdit", "编辑",
+        var menuEdit = CreateMenu(
+            "menuEdit",
+            "编辑",
             menuEditUndo,
             menuEditRedo,
             new ToolStripSeparator(),
@@ -169,7 +175,9 @@ public partial class MainEditorForm
         menuViewSettings.Click += (_, _) => OpenSettingsDialog();
         RegisterMenuShortcut(EditorCommandIds.ViewOpenSettings, menuViewSettings);
 
-        var menuView = CreateMenu("menuView", "视图",
+        var menuView = CreateMenu(
+            "menuView",
+            "视图",
             menuViewProjectTree,
             menuViewOutputWindow,
             menuViewCodeStructure,
@@ -194,7 +202,9 @@ public partial class MainEditorForm
         menuProjectProperties.Click += (_, _) => ShowNotImplemented("项目属性");
         RegisterMenuShortcut(EditorCommandIds.ProjectProperties, menuProjectProperties);
 
-        var menuProject = CreateMenu("menuProject", "项目",
+        var menuProject = CreateMenu(
+            "menuProject",
+            "项目",
             menuProjectNew,
             menuProjectOpen,
             menuProjectClose,
@@ -213,7 +223,6 @@ public partial class MainEditorForm
         menuBuildRun.Click += (_, _) => ExecuteBuildCommand(EditorCommandIds.BuildRun);
         RegisterMenuShortcut(EditorCommandIds.BuildRun, menuBuildRun);
 
-        // Build Configuration submenu
         menuBuildConfigDebug = CreateLeaf("menuBuildConfigDebug", "Debug");
         menuBuildConfigDebug.CheckOnClick = true;
         menuBuildConfigDebug.Checked = true;
@@ -224,7 +233,9 @@ public partial class MainEditorForm
         menuBuildConfigRelease.Checked = false;
         menuBuildConfigRelease.Click += (_, _) => SetBuildConfiguration(BuildConfiguration.Release);
 
-        menuBuildConfiguration = CreateMenu("menuBuildConfiguration", "构建配置",
+        menuBuildConfiguration = CreateMenu(
+            "menuBuildConfiguration",
+            "构建配置",
             menuBuildConfigDebug,
             menuBuildConfigRelease);
 
@@ -232,7 +243,9 @@ public partial class MainEditorForm
         menuInsertSnippet.Click += (_, _) => ShowCodeSnippetDialog();
         RegisterMenuShortcut(EditorCommandIds.EditInsertSnippet, menuInsertSnippet);
 
-        var menuBuild = CreateMenu("menuBuild", "编译",
+        var menuBuild = CreateMenu(
+            "menuBuild",
+            "编译",
             menuBuildCompile,
             menuBuildRebuild,
             new ToolStripSeparator(),
@@ -252,14 +265,21 @@ public partial class MainEditorForm
         menuDebugStepInto.Click += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStepInto);
         RegisterMenuShortcut(EditorCommandIds.DebugStepInto, menuDebugStepInto);
 
+        menuDebugStepOut = CreateLeaf("menuDebugStepOut", "单步跳出");
+        menuDebugStepOut.Click += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStepOut);
+        RegisterMenuShortcut(EditorCommandIds.DebugStepOut, menuDebugStepOut);
+
         menuDebugStop = CreateLeaf("menuDebugStop", "停止调试");
         menuDebugStop.Click += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStop);
         RegisterMenuShortcut(EditorCommandIds.DebugStop, menuDebugStop);
 
-        var menuDebug = CreateMenu("menuDebug", "调试",
+        var menuDebug = CreateMenu(
+            "menuDebug",
+            "调试",
             menuDebugStart,
             menuDebugStepOver,
             menuDebugStepInto,
+            menuDebugStepOut,
             menuDebugStop);
 
         menuToolsCompilerSettings = CreateLeaf("menuToolsCompilerSettings", "编译器设置");
@@ -269,28 +289,34 @@ public partial class MainEditorForm
         menuToolsOptions.Click += (_, _) => OpenSettingsDialog();
         RegisterMenuShortcut(EditorCommandIds.ViewOpenSettings, menuToolsOptions);
 
-        var menuTools = CreateMenu("menuTools", "工具",
+        var menuTools = CreateMenu(
+            "menuTools",
+            "工具",
             menuToolsCompilerSettings,
             new ToolStripSeparator(),
             menuToolsOptions);
 
-        var menuHelp = CreateMenu("menuHelp", "帮助",
+        var menuHelp = CreateMenu(
+            "menuHelp",
+            "帮助",
             CreateLeaf("menuHelpGuide", "使用说明"),
             CreateLeaf("menuHelpAbout", "关于 C++Editor"));
 
         ((ToolStripMenuItem)menuHelp.DropDownItems[0]).Click += (_, _) => ShowUsageGuide();
         ((ToolStripMenuItem)menuHelp.DropDownItems[1]).Click += (_, _) => ShowAboutDialog();
-        menu.Items.AddRange(new ToolStripItem[]
-        {
-            menuFile,
-            menuEdit,
-            menuView,
-            menuProject,
-            menuBuild,
-            menuDebug,
-            menuTools,
-            menuHelp
-        });
+
+        menu.Items.AddRange(
+            new ToolStripItem[]
+            {
+                menuFile,
+                menuEdit,
+                menuView,
+                menuProject,
+                menuBuild,
+                menuDebug,
+                menuTools,
+                menuHelp
+            });
 
         return menu;
     }

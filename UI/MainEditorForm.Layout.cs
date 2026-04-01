@@ -23,6 +23,7 @@ public partial class MainEditorForm
     private ToolStripStatusLabel statusEditorInfo = null!;
     private RichTextBox rtbBuildOutput = null!;
     private DataGridView dgvCompileErrors = null!;
+    private DataGridView dgvDebugVariables = null!;
     private RichTextBox rtbRunOutput = null!;
     private RichTextBox rtbRuntimeLog = null!;
 

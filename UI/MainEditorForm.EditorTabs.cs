@@ -81,6 +81,8 @@ public partial class MainEditorForm
             EditorThemeController.ApplyTheme(uiSettings.ThemeId, editorControlMain);
             InitializeSyntaxHighlighting();
             AttachEditorEventHandlers();
+            InitializeEditorContextMenu();
+            InitializeBreakpointMarkerSupport();
             return editorControlMain;
         }
         catch (Exception ex)
@@ -228,13 +230,15 @@ public partial class MainEditorForm
         isLoadingEditorDocument = true;
         try
         {
+            currentEditorFilePath = state.FilePath;
+            hasUnsavedChanges = state.IsDirty;
+
             var syntaxSource = state.FilePath ?? state.DisplayName;
             ApplyEditorLanguageConfiguration(syntaxSource);
             SetEditorSyntaxSource(syntaxSource, state.TextContent);
             editorControlMain.LoadDocument(new SweetEditor.Document(state.TextContent));
             editorControlMain.RequestDecorationRefresh();
-            currentEditorFilePath = state.FilePath;
-            hasUnsavedChanges = state.IsDirty;
+            ApplyBreakpointMarkersForCurrentDocument();
             UpdateEditorTabHeader(targetTab: tab);
         }
         finally

@@ -10,6 +10,7 @@ internal sealed class ToolchainSettingsForm : Form
     private readonly TextBox txtBuildOutputDirectory;
     private readonly TextBox txtCompileList;
     private readonly Button btnRefreshProbe;
+    private readonly string debuggerPath;
 
     private readonly Dictionary<ToolchainId, RadioButton> toolchainRadioById = new();
     private readonly Dictionary<ToolchainId, Label> toolchainStatusById = new();
@@ -33,6 +34,7 @@ internal sealed class ToolchainSettingsForm : Form
         selectedToolchainId = EditorToolchainSettingsController.GetSelectedToolchainId(currentSettings);
         argumentsByToolchain = EditorToolchainSettingsController.GetArgumentsByToolchain(currentSettings);
         EnsureArgumentsMapHasAllKeys(argumentsByToolchain);
+        debuggerPath = string.IsNullOrWhiteSpace(currentSettings.DebuggerPath) ? currentSettings.GdbPath : currentSettings.DebuggerPath;
 
         var root = new TableLayoutPanel
         {
@@ -150,7 +152,8 @@ internal sealed class ToolchainSettingsForm : Form
                 ToolchainRootPath = string.Empty,
                 CompilerArchivePath = string.Empty,
                 GppPath = string.Empty,
-                GdbPath = string.Empty
+                DebuggerPath = debuggerPath,
+                GdbPath = debuggerPath
             };
         }
     }

@@ -19,9 +19,13 @@ public partial class MainEditorForm
         editorControlMain.TextChanged -= EditorControlMain_TextChanged;
         editorControlMain.CursorChanged -= EditorControlMain_CursorChanged;
         editorControlMain.SelectionChanged -= EditorControlMain_SelectionChanged;
+        editorControlMain.ContextMenu -= EditorControlMain_ContextMenu;
+        editorControlMain.MouseDown -= EditorControlMain_MouseDown;
         editorControlMain.TextChanged += EditorControlMain_TextChanged;
         editorControlMain.CursorChanged += EditorControlMain_CursorChanged;
         editorControlMain.SelectionChanged += EditorControlMain_SelectionChanged;
+        editorControlMain.ContextMenu += EditorControlMain_ContextMenu;
+        editorControlMain.MouseDown += EditorControlMain_MouseDown;
     }
 
     private void EditorControlMain_TextChanged(object? sender, SweetEditor.TextChangedEventArgs e)
@@ -50,6 +54,11 @@ public partial class MainEditorForm
     private void EditorControlMain_SelectionChanged(object? sender, SweetEditor.SelectionChangedEventArgs e)
     {
         UpdateEditorStatusBar(e.CursorPosition);
+    }
+
+    private void EditorControlMain_ContextMenu(object? sender, SweetEditor.ContextMenuEventArgs e)
+    {
+        ShowEditorContextMenu(new PointF(e.ScreenPoint.X, e.ScreenPoint.Y));
     }
 
     private void NewUntitledDocument()
@@ -101,6 +110,9 @@ public partial class MainEditorForm
             ActivateDocumentTab(selectedTab);
         }
 
+        currentEditorFilePath = state.FilePath;
+        hasUnsavedChanges = state.IsDirty;
+
         if (editorControlMain is not null)
         {
             isLoadingEditorDocument = true;
@@ -111,6 +123,7 @@ public partial class MainEditorForm
                 SetEditorSyntaxSource(syntaxSource, normalized);
                 editorControlMain.LoadDocument(new SweetEditor.Document(normalized));
                 editorControlMain.RequestDecorationRefresh();
+                ApplyBreakpointMarkersForCurrentDocument();
             }
             finally
             {
@@ -118,8 +131,6 @@ public partial class MainEditorForm
             }
         }
 
-        currentEditorFilePath = state.FilePath;
-        hasUnsavedChanges = state.IsDirty;
         UpdateEditorTabHeader(targetTab: selectedTab);
         UpdateEditorStatusBar();
     }
@@ -182,7 +193,10 @@ public partial class MainEditorForm
 
         try
         {
-            File.WriteAllText(state.FilePath, state.TextContent, state.TextEncoding);
+            var utf8Encoding = new UTF8Encoding(false);
+            File.WriteAllText(state.FilePath, state.TextContent, utf8Encoding);
+            state.TextEncoding = utf8Encoding;
+            state.EncodingDisplayName = "UTF-8";
             state.IsDirty = false;
             currentEditorFilePath = state.FilePath;
             hasUnsavedChanges = false;
@@ -234,13 +248,17 @@ public partial class MainEditorForm
         try
         {
             var normalizedPath = Path.GetFullPath(dialog.FileName);
-            File.WriteAllText(normalizedPath, state.TextContent, state.TextEncoding);
+            var utf8Encoding = new UTF8Encoding(false);
+            File.WriteAllText(normalizedPath, state.TextContent, utf8Encoding);
 
             state.FilePath = normalizedPath;
             state.DisplayName = Path.GetFileName(normalizedPath);
+            state.TextEncoding = utf8Encoding;
+            state.EncodingDisplayName = "UTF-8";
             state.IsDirty = false;
             currentEditorFilePath = normalizedPath;
             hasUnsavedChanges = false;
+            ApplyBreakpointMarkersForCurrentDocument();
             InvalidateCodeStructureCacheForPath(previousPath);
             InvalidateCodeStructureCacheForPath(normalizedPath);
 
@@ -409,7 +427,7 @@ public partial class MainEditorForm
         var selectedText = editorControlMain.GetSelectedText();
         if (!string.IsNullOrEmpty(selectedText))
         {
-            Clipboard.SetText(selectedText);
+            SetClipboardUnicodeText(selectedText);
         }
 
         var selection = editorControlMain.GetSelection();
@@ -431,7 +449,7 @@ public partial class MainEditorForm
         var selectedText = editorControlMain.GetSelectedText();
         if (!string.IsNullOrEmpty(selectedText))
         {
-            Clipboard.SetText(selectedText);
+            SetClipboardUnicodeText(selectedText);
         }
 
         editorControlMain.Focus();
@@ -439,13 +457,60 @@ public partial class MainEditorForm
 
     private void PasteInEditor()
     {
-        if (editorControlMain is null || !Clipboard.ContainsText())
+        if (editorControlMain is null)
         {
             return;
         }
 
-        editorControlMain.InsertText(Clipboard.GetText());
+        var clipboardText = GetClipboardTextPreferUnicode();
+        if (string.IsNullOrEmpty(clipboardText))
+        {
+            return;
+        }
+
+        editorControlMain.InsertText(clipboardText);
         editorControlMain.Focus();
+    }
+
+    private static void SetClipboardUnicodeText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(text, TextDataFormat.UnicodeText);
+        }
+        catch
+        {
+            try
+            {
+                Clipboard.SetText(text);
+            }
+            catch
+            {
+                // Ignore clipboard busy failures.
+            }
+        }
+    }
+
+    private static string GetClipboardTextPreferUnicode()
+    {
+        try
+        {
+            if (Clipboard.ContainsText(TextDataFormat.UnicodeText))
+            {
+                return Clipboard.GetText(TextDataFormat.UnicodeText);
+            }
+
+            return Clipboard.ContainsText() ? Clipboard.GetText() : string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private void SelectAllInEditor()
@@ -575,8 +640,7 @@ public partial class MainEditorForm
             return;
         }
 
-        editorControlMain.GotoPosition(lineNumber - 1, 0);
-        editorControlMain.Focus();
+        NavigateToEditorPositionZeroBased(lineNumber - 1, 0);
     }
 
     private void ToggleProjectTreePanel(bool visible)
@@ -620,7 +684,7 @@ public partial class MainEditorForm
 
     private void ExecuteDebugCommand(string commandId)
     {
-        ExecuteDebugCommandInternal(commandId);
+        _ = ExecuteDebugCommandInternalAsync(commandId);
     }
 
     private void AppendBuildOutput(string message)
@@ -741,7 +805,19 @@ public partial class MainEditorForm
             return;
         }
 
-        editorControlMain.GotoPosition(lineNumber - 1, columnNumber);
+        NavigateToEditorPositionZeroBased(lineNumber - 1, columnNumber);
+    }
+
+    private void NavigateToEditorPositionZeroBased(int lineIndex, int columnIndex)
+    {
+        if (editorControlMain is null)
+        {
+            return;
+        }
+
+        editorControlMain.GotoPosition(Math.Max(0, lineIndex), Math.Max(0, columnIndex));
+        editorControlMain.RequestDecorationRefresh();
+        editorControlMain.Flush();
         editorControlMain.Focus();
     }
 

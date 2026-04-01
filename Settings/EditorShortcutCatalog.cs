@@ -37,6 +37,7 @@ internal static class EditorCommandIds
     public const string DebugStart = "debug.start";
     public const string DebugStepOver = "debug.stepOver";
     public const string DebugStepInto = "debug.stepInto";
+    public const string DebugStepOut = "debug.stepOut";
     public const string DebugStop = "debug.stop";
 
     public const string ExplorerNewFile = "explorer.newFile";
@@ -106,6 +107,7 @@ internal static class EditorShortcutCatalog
         new ShortcutCommandDefinition(EditorCommandIds.DebugStart, "调试", "开始调试", "F5"),
         new ShortcutCommandDefinition(EditorCommandIds.DebugStepOver, "调试", "单步跳过", "F10"),
         new ShortcutCommandDefinition(EditorCommandIds.DebugStepInto, "调试", "单步进入", "F11"),
+        new ShortcutCommandDefinition(EditorCommandIds.DebugStepOut, "调试", "单步跳出", "Shift+F11"),
         new ShortcutCommandDefinition(EditorCommandIds.DebugStop, "调试", "停止调试", "Shift+F5"),
 
         // VSCode-like baseline: explorer actions are mostly context menu driven by default.
