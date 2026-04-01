@@ -112,7 +112,7 @@ public partial class MainEditorForm
         Text = "C++Editor";
         WindowState = FormWindowState.Maximized;
         Shown += MainEditorForm_Shown;
-        splitMain.SplitterDistance = Math.Max(300, (int)(ClientSize.Height * 0.72));
+        splitMain.SplitterDistance = Math.Max(300, (int)(ClientSize.Height * 0.65));
 
         splitEditor.Panel1.ResumeLayout(false);
         splitEditor.Panel2.ResumeLayout(false);

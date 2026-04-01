@@ -10,14 +10,17 @@ public partial class MainEditorForm
             Name = "tabBottom",
             SelectedIndex = 0,
             TabIndex = 0,
-            DrawMode = TabDrawMode.OwnerDrawFixed
+            DrawMode = TabDrawMode.OwnerDrawFixed,
+            SizeMode = TabSizeMode.Fixed,
+            ItemSize = new Size(150, 32),
+            Padding = new Point(12, 6)
         };
         bottomTabs.DrawItem += TabBottom_DrawItem;
 
         var buildOutputPage = new TabPage
         {
             Name = "tabPageBuildOutput",
-            Text = "\u7F16\u8BD1\u8F93\u51FA",
+            Text = "编译输出",
             Padding = new Padding(0),
             UseVisualStyleBackColor = true
         };
@@ -36,7 +39,7 @@ public partial class MainEditorForm
         var compileErrorsPage = new TabPage
         {
             Name = "tabPageCompileErrors",
-            Text = "\u7F16\u8BD1\u9519\u8BEF\u5217\u8868",
+            Text = "编译错误列表",
             Padding = new Padding(0),
             UseVisualStyleBackColor = true
         };
@@ -47,7 +50,7 @@ public partial class MainEditorForm
         var runOutputPage = new TabPage
         {
             Name = "tabPageRunOutput",
-            Text = "\u8FD0\u884C\u7ED3\u679C",
+            Text = "运行结果",
             Padding = new Padding(0),
             UseVisualStyleBackColor = true
         };
@@ -66,7 +69,7 @@ public partial class MainEditorForm
         var runtimeLogPage = new TabPage
         {
             Name = "tabPageRuntimeLog",
-            Text = "\u8FD0\u884C\u65E5\u5FD7",
+            Text = "运行日志",
             Padding = new Padding(0),
             UseVisualStyleBackColor = true
         };
@@ -86,6 +89,8 @@ public partial class MainEditorForm
         bottomTabs.Controls.Add(compileErrorsPage);
         bottomTabs.Controls.Add(runOutputPage);
         bottomTabs.Controls.Add(runtimeLogPage);
+
+        tabBottom = bottomTabs; // 很重要
 
         return bottomTabs;
     }
@@ -110,14 +115,14 @@ public partial class MainEditorForm
             e.Graphics.FillRectangle(backgroundBrush, bounds);
         }
 
-        var textBounds = new Rectangle(bounds.X + 8, bounds.Y + 2, Math.Max(10, bounds.Width - 12), bounds.Height - 4);
+        var textBounds = new Rectangle(bounds.X + 4, bounds.Y + 2, Math.Max(10, bounds.Width - 8), bounds.Height - 4);
         TextRenderer.DrawText(
             e.Graphics,
             tab.Text,
             tabBottom.Font,
             textBounds,
             tabBottom.ForeColor,
-            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
         using var borderPen = new Pen(borderColor);
         e.Graphics.DrawRectangle(borderPen, bounds);

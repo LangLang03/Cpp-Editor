@@ -280,11 +280,6 @@ public partial class MainEditorForm
 
         ((ToolStripMenuItem)menuHelp.DropDownItems[0]).Click += (_, _) => ShowUsageGuide();
         ((ToolStripMenuItem)menuHelp.DropDownItems[1]).Click += (_, _) => ShowAboutDialog();
-        menuQuickRun = CreateLeaf("menuQuickRun", "\u8FD0\u884C");
-        menuQuickRun.Alignment = ToolStripItemAlignment.Right;
-        menuQuickRun.Font = new Font(menu.Font, FontStyle.Bold);
-        menuQuickRun.Click += (_, _) => ExecuteBuildCommand(EditorCommandIds.BuildRun);
-
         menu.Items.AddRange(new ToolStripItem[]
         {
             menuFile,
@@ -294,8 +289,7 @@ public partial class MainEditorForm
             menuBuild,
             menuDebug,
             menuTools,
-            menuHelp,
-            menuQuickRun
+            menuHelp
         });
 
         return menu;
