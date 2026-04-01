@@ -667,7 +667,18 @@ public partial class MainEditorForm
 
     private void ShowAboutDialog()
     {
-        MessageBox.Show(this, "C++Editor\nWinForms 代码编辑器原型", "关于 C++Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        var aboutText = """
+            C++Editor
+            WinForms 代码编辑器原型
+
+            本软件采用 GPL v3 许可证开源
+            https://github.com/LangLang03/Cpp-Editor
+
+            使用的第三方库：
+            • OpenSweetEditor - LGPL 许可证
+              https://github.com/FinalScave/OpenSweetEditor
+            """;
+        MessageBox.Show(this, aboutText, "关于 C++Editor", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private string GetShortcutHint(string commandId)
