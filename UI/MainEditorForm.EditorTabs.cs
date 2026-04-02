@@ -27,7 +27,7 @@ public partial class MainEditorForm
 
     private TabControl CreateEditorTabs()
     {
-        var editorTabs = new TabControl
+        var editorTabs = new FlatTabControl
         {
             Dock = DockStyle.Fill,
             Name = "tabEditorHost",
@@ -584,12 +584,11 @@ public partial class MainEditorForm
         var tab = tabEditorHost.TabPages[e.Index];
         var bounds = e.Bounds;
         var selected = e.Index == tabEditorHost.SelectedIndex;
-        var selectedBackColor = tab.BackColor == Color.Empty ? tabEditorHost.BackColor : tab.BackColor;
-        var unselectedBackColor = BlendColor(tabEditorHost.BackColor, selectedBackColor, 0.55f);
+        var tabBackColor = tabEditorHost.BackColor;
         var tabTextColor = tabEditorHost.ForeColor;
         var borderColor = splitWorkspace.BackColor;
 
-        using (var backgroundBrush = new SolidBrush(selected ? selectedBackColor : unselectedBackColor))
+        using (var backgroundBrush = new SolidBrush(tabBackColor))
         {
             e.Graphics.FillRectangle(backgroundBrush, bounds);
         }
@@ -615,8 +614,17 @@ public partial class MainEditorForm
             e.Graphics.DrawLine(closePen, closeBounds.Right - 3, closeBounds.Top + 3, closeBounds.Left + 3, closeBounds.Bottom - 3);
         }
 
-        using var borderPen = new Pen(borderColor);
-        e.Graphics.DrawRectangle(borderPen, bounds);
+        using var separatorPen = new Pen(borderColor);
+        if (e.Index < tabEditorHost.TabPages.Count - 1)
+        {
+            e.Graphics.DrawLine(separatorPen, bounds.Right - 1, bounds.Top + 4, bounds.Right - 1, bounds.Bottom - 4);
+        }
+
+        if (selected)
+        {
+            using var indicatorPen = new Pen(tabTextColor, 2f);
+            e.Graphics.DrawLine(indicatorPen, bounds.Left + 4, bounds.Bottom - 2, bounds.Right - 5, bounds.Bottom - 2);
+        }
     }
 
     private static string ResolveEncodingDisplayName(System.Text.Encoding encoding, string? encodingDisplayName)

@@ -30,6 +30,8 @@ internal sealed class EditorSettingsForm : Form
     private CheckBox chkShowOutputPanel = null!;
     private CheckBox chkRestoreLastSession = null!;
     private NumericUpDown numExplorerWidth = null!;
+    private NumericUpDown numOutputPanelHeight = null!;
+    private NumericUpDown numCodeStructureWidth = null!;
     private ComboBox cmbTheme = null!;
     private CheckBox chkRenameSelectNameOnly = null!;
 
@@ -170,6 +172,8 @@ internal sealed class EditorSettingsForm : Form
 
         treeSettings.SelectedNode = FindSettingsNodeByName(initialPageName ?? "auto_pairs") ?? treeSettings.Nodes[0].Nodes[0];
         RefreshShortcutConflicts();
+
+        EditorThemeController.ApplyFlatTheme(uiSettings.ThemeId, this);
     }
 
     internal string AutoPairFormat => textAutoPairs.Text;
@@ -179,6 +183,8 @@ internal sealed class EditorSettingsForm : Form
         ShowProjectTree = chkShowProjectTree.Checked,
         ShowOutputPanel = chkShowOutputPanel.Checked,
         ExplorerWidth = (int)numExplorerWidth.Value,
+        OutputPanelHeight = (int)numOutputPanelHeight.Value,
+        CodeStructurePanelWidth = (int)numCodeStructureWidth.Value,
         RestoreLastSessionOnStartup = chkRestoreLastSession.Checked,
         ThemeId = cmbTheme.SelectedIndex == 1
             ? EditorThemeController.DarkThemeId
@@ -781,10 +787,48 @@ internal sealed class EditorSettingsForm : Form
 
         numExplorerWidth = new NumericUpDown
         {
-            Minimum = 180,
-            Maximum = 420,
-            Value = Math.Clamp(uiSettings.ExplorerWidth, 180, 420),
+            Minimum = UiSettings.ExplorerWidthMin,
+            Maximum = UiSettings.ExplorerWidthMax,
+            Value = Math.Clamp(uiSettings.ExplorerWidth, UiSettings.ExplorerWidthMin, UiSettings.ExplorerWidthMax),
             Location = new Point(0, 224),
+            Width = 120
+        };
+
+        var outputHeightLabel = new Label
+        {
+            Text = "底部输出区高度（像素）：",
+            AutoSize = true,
+            Location = new Point(0, 258)
+        };
+
+        numOutputPanelHeight = new NumericUpDown
+        {
+            Minimum = UiSettings.OutputPanelHeightMin,
+            Maximum = UiSettings.OutputPanelHeightMax,
+            Value = Math.Clamp(
+                uiSettings.OutputPanelHeight,
+                UiSettings.OutputPanelHeightMin,
+                UiSettings.OutputPanelHeightMax),
+            Location = new Point(0, 284),
+            Width = 120
+        };
+
+        var codeStructureWidthLabel = new Label
+        {
+            Text = "代码结构区宽度（像素）：",
+            AutoSize = true,
+            Location = new Point(0, 318)
+        };
+
+        numCodeStructureWidth = new NumericUpDown
+        {
+            Minimum = UiSettings.CodeStructurePanelWidthMin,
+            Maximum = UiSettings.CodeStructurePanelWidthMax,
+            Value = Math.Clamp(
+                uiSettings.CodeStructurePanelWidth,
+                UiSettings.CodeStructurePanelWidthMin,
+                UiSettings.CodeStructurePanelWidthMax),
+            Location = new Point(0, 344),
             Width = 120
         };
 
@@ -796,6 +840,10 @@ internal sealed class EditorSettingsForm : Form
         host.Controls.Add(chkRestoreLastSession);
         host.Controls.Add(widthLabel);
         host.Controls.Add(numExplorerWidth);
+        host.Controls.Add(outputHeightLabel);
+        host.Controls.Add(numOutputPanelHeight);
+        host.Controls.Add(codeStructureWidthLabel);
+        host.Controls.Add(numCodeStructureWidth);
     }
 
     private DataGridView BuildShortcutPage(Control host)

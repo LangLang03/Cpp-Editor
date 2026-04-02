@@ -125,6 +125,9 @@ internal sealed class ToolchainSettingsForm : Form
 
         btnRefreshProbe.Click += (_, _) => RefreshProbeResults(preserveSelection: true);
         RefreshProbeResults(preserveSelection: false);
+
+        var themeId = EditorConfigurationController.GetUiSettings().ThemeId;
+        EditorThemeController.ApplyFlatTheme(themeId, this);
     }
 
     internal ToolchainSettingsConfig ResultSettings

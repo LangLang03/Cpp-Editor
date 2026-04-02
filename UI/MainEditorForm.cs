@@ -68,6 +68,11 @@ public partial class MainEditorForm : Form
         {
             EditorThemeController.ApplyTheme(uiSettings.ThemeId, editorControlMain);
         }
+
+        if (debugControlPopup is not null && !debugControlPopup.IsDisposed)
+        {
+            EditorThemeController.ApplyFlatTheme(uiSettings.ThemeId, debugControlPopup);
+        }
     }
 
     private void MainEditorForm_FormClosing(object? sender, FormClosingEventArgs e)

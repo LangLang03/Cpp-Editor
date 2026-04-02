@@ -35,6 +35,16 @@ public partial class MainEditorForm
             splitWorkspace.SplitterDistance = Math.Clamp(uiSettings.ExplorerWidth, ExplorerPanelMinWidth, ExplorerPanelMaxWidth);
         }
 
+        if (!splitMain.Panel2Collapsed && splitMain.Height > 0)
+        {
+            ApplyOutputPanelHeight(uiSettings.OutputPanelHeight);
+        }
+
+        if (!splitEditor.Panel2Collapsed && splitEditor.Width > 0)
+        {
+            ApplyCodeStructurePanelWidth(uiSettings.CodeStructurePanelWidth);
+        }
+
         SyncViewMenuState();
     }
 
@@ -64,6 +74,16 @@ public partial class MainEditorForm
         if (!splitWorkspace.Panel1Collapsed && splitWorkspace.SplitterDistance > 0)
         {
             uiSettings.ExplorerWidth = splitWorkspace.SplitterDistance;
+        }
+
+        if (!splitMain.Panel2Collapsed)
+        {
+            uiSettings.OutputPanelHeight = GetCurrentOutputPanelHeight();
+        }
+
+        if (!splitEditor.Panel2Collapsed)
+        {
+            uiSettings.CodeStructurePanelWidth = GetCurrentCodeStructurePanelWidth();
         }
 
         EditorUiSettingsController.Save(uiSettings);

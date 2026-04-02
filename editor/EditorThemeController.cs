@@ -5,6 +5,7 @@ internal static class EditorThemeController
     internal const string LightThemeId = "light";
     internal const string DarkThemeId = "dark";
 
+    private const int FlatDividerWidth = 1;
     private const int FontStyleRegular = 0;
     private const int FontStyleBold = SweetEditor.EditorControl.FONT_STYLE_BOLD;
     private const int FontStyleItalic = SweetEditor.EditorControl.FONT_STYLE_ITALIC;
@@ -98,16 +99,21 @@ internal static class EditorThemeController
 
         ApplyMenuTheme(menuMain, palette);
 
-        splitMain.BackColor = palette.BorderColor;
-        splitWorkspace.BackColor = palette.BorderColor;
-        splitMain.Panel1.BackColor = palette.AppBackgroundColor;
-        splitMain.Panel2.BackColor = palette.AppBackgroundColor;
-        splitWorkspace.Panel1.BackColor = palette.SurfaceColor;
-        splitWorkspace.Panel2.BackColor = palette.SurfaceColor;
+        ApplySplitContainerTheme(
+            splitMain,
+            palette,
+            panel1BackColor: palette.AppBackgroundColor,
+            panel2BackColor: palette.AppBackgroundColor);
+        ApplySplitContainerTheme(
+            splitWorkspace,
+            palette,
+            panel1BackColor: palette.SurfaceColor,
+            panel2BackColor: palette.SurfaceColor);
 
         treeProject.BackColor = palette.SurfaceColor;
         treeProject.ForeColor = palette.PrimaryTextColor;
         treeProject.LineColor = palette.BorderColor;
+        treeProject.BorderStyle = BorderStyle.FixedSingle;
 
         ApplyTabControlTheme(tabEditorHost, palette);
         ApplyTabControlTheme(tabBottom, palette);
@@ -124,8 +130,18 @@ internal static class EditorThemeController
         ApplyContextMenuTheme(rtbRuntimeLog.ContextMenuStrip, palette);
         ApplyContextMenuTheme(dgvCompileErrors.ContextMenuStrip, palette);
 
+        ApplyFlatThemeToControlTree(form, palette);
+
         tabEditorHost.Invalidate();
         treeProject.Invalidate();
+    }
+
+    internal static void ApplyFlatTheme(string? themeId, Form form)
+    {
+        var palette = ResolvePalette(themeId);
+        form.BackColor = palette.AppBackgroundColor;
+        form.ForeColor = palette.PrimaryTextColor;
+        ApplyFlatThemeToControlTree(form, palette);
     }
 
     internal static void ApplyTheme(string? themeId, SweetEditor.EditorControl editorControl)
@@ -212,11 +228,27 @@ internal static class EditorThemeController
         menuMain.Renderer = new ToolStripProfessionalRenderer(new ThemeMenuColorTable(palette));
     }
 
+    private static void ApplyToolStripTheme(ToolStrip toolStrip, ThemePalette palette)
+    {
+        var toolStripBackColor = toolStrip is StatusStrip ? palette.HeaderColor : palette.SurfaceColor;
+        toolStrip.BackColor = toolStripBackColor;
+        toolStrip.ForeColor = palette.PrimaryTextColor;
+        toolStrip.Renderer = new ToolStripProfessionalRenderer(new ThemeMenuColorTable(palette));
+        toolStrip.GripStyle = ToolStripGripStyle.Hidden;
+
+        foreach (ToolStripItem item in toolStrip.Items)
+        {
+            item.BackColor = toolStripBackColor;
+            item.ForeColor = palette.PrimaryTextColor;
+        }
+    }
+
     private static void ApplyTabControlTheme(TabControl tabControl, ThemePalette palette)
     {
-        tabControl.BackColor = palette.AppBackgroundColor;
+        tabControl.BackColor = palette.SurfaceColor;
         tabControl.ForeColor = palette.PrimaryTextColor;
-        tabControl.Appearance = TabAppearance.Normal;
+        tabControl.Appearance = TabAppearance.FlatButtons;
+        tabControl.HotTrack = false;
 
         foreach (TabPage tabPage in tabControl.TabPages)
         {
@@ -230,6 +262,7 @@ internal static class EditorThemeController
     {
         outputBox.BackColor = palette.SurfaceAltColor;
         outputBox.ForeColor = palette.PrimaryTextColor;
+        outputBox.BorderStyle = BorderStyle.None;
 
         if (outputBox.TextLength <= 0)
         {
@@ -250,6 +283,9 @@ internal static class EditorThemeController
         grid.BorderStyle = BorderStyle.FixedSingle;
         grid.GridColor = palette.BorderColor;
         grid.EnableHeadersVisualStyles = false;
+        grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
+        grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+        grid.RowHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
 
         grid.ColumnHeadersDefaultCellStyle.BackColor = palette.HeaderColor;
         grid.ColumnHeadersDefaultCellStyle.ForeColor = palette.PrimaryTextColor;
@@ -284,12 +320,154 @@ internal static class EditorThemeController
 
         statusStrip.BackColor = palette.HeaderColor;
         statusStrip.ForeColor = palette.PrimaryTextColor;
+        statusStrip.SizingGrip = false;
 
         foreach (ToolStripItem item in statusStrip.Items)
         {
             item.BackColor = palette.HeaderColor;
             item.ForeColor = palette.PrimaryTextColor;
         }
+    }
+
+    private static void ApplyFlatThemeToControlTree(Control root, ThemePalette palette)
+    {
+        ApplyControlTheme(root, palette);
+        ApplyContextMenuTheme(root.ContextMenuStrip, palette);
+
+        foreach (Control child in root.Controls)
+        {
+            ApplyFlatThemeToControlTree(child, palette);
+        }
+    }
+
+    private static void ApplyControlTheme(Control control, ThemePalette palette)
+    {
+        switch (control)
+        {
+            case MenuStrip menuStrip:
+                ApplyMenuTheme(menuStrip, palette);
+                return;
+            case StatusStrip statusStrip:
+                ApplyStatusStripTheme(statusStrip, palette);
+                ApplyToolStripTheme(statusStrip, palette);
+                return;
+            case ToolStrip toolStrip:
+                ApplyToolStripTheme(toolStrip, palette);
+                return;
+            case SplitContainer splitContainer:
+                ApplySplitContainerTheme(
+                    splitContainer,
+                    palette,
+                    panel1BackColor: splitContainer.Panel1.BackColor,
+                    panel2BackColor: splitContainer.Panel2.BackColor);
+                return;
+            case TabControl tabControl:
+                ApplyTabControlTheme(tabControl, palette);
+                return;
+            case TabPage tabPage:
+                tabPage.UseVisualStyleBackColor = false;
+                tabPage.BackColor = palette.SurfaceColor;
+                tabPage.ForeColor = palette.PrimaryTextColor;
+                return;
+            case TreeView treeView:
+                treeView.BackColor = palette.SurfaceColor;
+                treeView.ForeColor = palette.PrimaryTextColor;
+                treeView.LineColor = palette.BorderColor;
+                treeView.BorderStyle = BorderStyle.FixedSingle;
+                return;
+            case DataGridView dataGridView:
+                ApplyCompileErrorsTheme(dataGridView, palette);
+                return;
+            case RichTextBox richTextBox:
+                ApplyOutputTheme(richTextBox, palette);
+                return;
+            case TextBox textBox:
+                textBox.BackColor = textBox.ReadOnly ? palette.SurfaceAltColor : palette.SurfaceColor;
+                textBox.ForeColor = palette.PrimaryTextColor;
+                textBox.BorderStyle = BorderStyle.FixedSingle;
+                return;
+            case ListView listView:
+                listView.BackColor = palette.SurfaceColor;
+                listView.ForeColor = palette.PrimaryTextColor;
+                listView.BorderStyle = BorderStyle.FixedSingle;
+                return;
+            case ListBox listBox:
+                listBox.BackColor = palette.SurfaceColor;
+                listBox.ForeColor = palette.PrimaryTextColor;
+                listBox.BorderStyle = BorderStyle.FixedSingle;
+                return;
+            case Button button:
+                ApplyButtonTheme(button, palette);
+                return;
+            case ComboBox comboBox:
+                comboBox.FlatStyle = FlatStyle.Flat;
+                comboBox.BackColor = palette.SurfaceColor;
+                comboBox.ForeColor = palette.PrimaryTextColor;
+                return;
+            case NumericUpDown numericUpDown:
+                numericUpDown.BorderStyle = BorderStyle.FixedSingle;
+                numericUpDown.BackColor = palette.SurfaceColor;
+                numericUpDown.ForeColor = palette.PrimaryTextColor;
+                return;
+            case Label label:
+                label.ForeColor = palette.PrimaryTextColor;
+                return;
+            case CheckBox checkBox:
+                checkBox.ForeColor = palette.PrimaryTextColor;
+                return;
+            case RadioButton radioButton:
+                radioButton.ForeColor = palette.PrimaryTextColor;
+                return;
+            case GroupBox groupBox:
+                groupBox.ForeColor = palette.PrimaryTextColor;
+                return;
+            case SplitterPanel splitterPanel:
+                splitterPanel.ForeColor = palette.PrimaryTextColor;
+                return;
+            case UserControl userControl:
+                userControl.BackColor = palette.SurfaceColor;
+                userControl.ForeColor = palette.PrimaryTextColor;
+                return;
+            case FlowLayoutPanel flowLayoutPanel:
+                flowLayoutPanel.BackColor = palette.AppBackgroundColor;
+                flowLayoutPanel.ForeColor = palette.PrimaryTextColor;
+                return;
+            case TableLayoutPanel tableLayoutPanel:
+                tableLayoutPanel.BackColor = palette.AppBackgroundColor;
+                tableLayoutPanel.ForeColor = palette.PrimaryTextColor;
+                return;
+            case Panel panel:
+                panel.BackColor = palette.AppBackgroundColor;
+                panel.ForeColor = palette.PrimaryTextColor;
+                return;
+            default:
+                control.ForeColor = palette.PrimaryTextColor;
+                break;
+        }
+    }
+
+    private static void ApplySplitContainerTheme(
+        SplitContainer splitContainer,
+        ThemePalette palette,
+        Color panel1BackColor,
+        Color panel2BackColor)
+    {
+        splitContainer.BackColor = palette.BorderColor;
+        splitContainer.SplitterWidth = FlatDividerWidth;
+        splitContainer.Panel1.BackColor = panel1BackColor;
+        splitContainer.Panel2.BackColor = panel2BackColor;
+    }
+
+    private static void ApplyButtonTheme(Button button, ThemePalette palette)
+    {
+        button.FlatStyle = FlatStyle.Flat;
+        button.UseVisualStyleBackColor = false;
+        button.FlatAppearance.BorderSize = 1;
+        button.FlatAppearance.BorderColor = palette.BorderColor;
+        button.FlatAppearance.MouseOverBackColor = palette.SurfaceAltColor;
+        button.FlatAppearance.MouseDownBackColor = palette.SelectionAccentColor;
+        button.BackColor = palette.SurfaceColor;
+        button.ForeColor = palette.PrimaryTextColor;
     }
 
     private static void ApplyContextMenuTheme(ContextMenuStrip? menu, ThemePalette palette)
@@ -302,6 +480,7 @@ internal static class EditorThemeController
         menu.BackColor = palette.SurfaceColor;
         menu.ForeColor = palette.PrimaryTextColor;
         menu.Renderer = new ToolStripProfessionalRenderer(new ThemeMenuColorTable(palette));
+        menu.ShowImageMargin = false;
 
         foreach (ToolStripItem item in menu.Items)
         {

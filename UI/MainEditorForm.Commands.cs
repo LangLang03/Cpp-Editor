@@ -660,6 +660,11 @@ public partial class MainEditorForm
     private void ToggleOutputPanel(bool visible)
     {
         splitMain.Panel2Collapsed = !visible;
+        if (visible)
+        {
+            ApplyOutputPanelHeight(uiSettings.OutputPanelHeight);
+        }
+
         if (!suppressViewMenuStateSync)
         {
             PersistUiSettingsFromCurrentState();
@@ -670,9 +675,15 @@ public partial class MainEditorForm
     {
         splitWorkspace.Panel1Collapsed = false;
         splitMain.Panel2Collapsed = false;
+        splitEditor.Panel2Collapsed = false;
 
-        splitMain.SplitterDistance = Math.Max(260, (int)(ClientSize.Height * 0.68));
+        uiSettings.ExplorerWidth = UiSettings.ExplorerWidthDefault;
+        uiSettings.OutputPanelHeight = UiSettings.OutputPanelHeightDefault;
+        uiSettings.CodeStructurePanelWidth = UiSettings.CodeStructurePanelWidthDefault;
+
         splitWorkspace.SplitterDistance = Math.Clamp(uiSettings.ExplorerWidth, ExplorerPanelMinWidth, ExplorerPanelMaxWidth);
+        ApplyOutputPanelHeight(uiSettings.OutputPanelHeight);
+        ApplyCodeStructurePanelWidth(uiSettings.CodeStructurePanelWidth);
         SyncViewMenuState();
         PersistUiSettingsFromCurrentState();
     }
@@ -824,6 +835,12 @@ public partial class MainEditorForm
     private void ToggleCodeStructurePanel(bool visible)
     {
         splitEditor.Panel2Collapsed = !visible;
+        if (visible)
+        {
+            ApplyCodeStructurePanelWidth(uiSettings.CodeStructurePanelWidth);
+        }
+
+        PersistUiSettingsFromCurrentState();
     }
 
     private void ShowCodeSnippetDialog()

@@ -6,6 +6,10 @@ public partial class MainEditorForm
     private const int ExplorerPanelMaxWidth = 420;
     private const int CodeStructurePanelMinWidth = 200;
     private const int CodeStructurePanelMaxWidth = 400;
+    private const int OutputPanelMinHeight = 140;
+    private const int OutputPanelMaxHeight = 520;
+    private const int EditorPanelMinWidth = 260;
+    private const int EditorPanelMinHeight = 240;
     private bool hasAppliedInitialExplorerWidth;
 
     private System.ComponentModel.IContainer? components;
@@ -73,6 +77,7 @@ public partial class MainEditorForm
         splitMain.Name = "splitMain";
         splitMain.Orientation = Orientation.Horizontal;
         splitMain.TabIndex = 1;
+        splitMain.SplitterMoved += SplitMain_SplitterMoved;
 
         // splitWorkspace - splits project tree and editor area
         splitWorkspace.Dock = DockStyle.Fill;
@@ -86,6 +91,7 @@ public partial class MainEditorForm
         splitEditor.Dock = DockStyle.Fill;
         splitEditor.FixedPanel = FixedPanel.Panel2;
         splitEditor.Name = "splitEditor";
+        splitEditor.Panel1MinSize = EditorPanelMinWidth;
         // Note: Panel2MinSize is set in Shown event to avoid initialization issues
         splitEditor.Panel2Collapsed = true; // Initially collapsed, will show in Shown event
         splitEditor.TabIndex = 0;
@@ -113,7 +119,7 @@ public partial class MainEditorForm
         Text = "C++Editor";
         WindowState = FormWindowState.Maximized;
         Shown += MainEditorForm_Shown;
-        splitMain.SplitterDistance = Math.Max(300, (int)(ClientSize.Height * 0.65));
+        splitMain.SplitterDistance = Math.Max(320, ClientSize.Height - UiSettings.OutputPanelHeightDefault);
 
         splitEditor.Panel1.ResumeLayout(false);
         splitEditor.Panel2.ResumeLayout(false);
@@ -167,16 +173,28 @@ public partial class MainEditorForm
         // Show and set initial code structure panel width
         splitEditor.Panel2MinSize = CodeStructurePanelMinWidth;
         splitEditor.Panel2Collapsed = false;
-        
+
         // Delay setting SplitterDistance to ensure layout is complete
         BeginInvoke(new Action(() =>
         {
-            var targetWidth = Math.Max(250, splitEditor.Width - 280);
-            if (targetWidth > CodeStructurePanelMinWidth && targetWidth < splitEditor.Width - 100)
+            if (!splitMain.Panel2Collapsed)
             {
-                splitEditor.SplitterDistance = targetWidth;
+                ApplyOutputPanelHeight(uiSettings.OutputPanelHeight);
             }
+
+            ApplyCodeStructurePanelWidth(uiSettings.CodeStructurePanelWidth);
         }));
+    }
+
+    private void SplitMain_SplitterMoved(object? sender, SplitterEventArgs e)
+    {
+        if (splitMain.Panel2Collapsed)
+        {
+            return;
+        }
+
+        uiSettings.OutputPanelHeight = GetCurrentOutputPanelHeight();
+        PersistUiSettingsFromCurrentState();
     }
 
     private void SplitWorkspace_SplitterMoved(object? sender, SplitterEventArgs e)
@@ -192,7 +210,61 @@ public partial class MainEditorForm
 
     private void SplitEditor_SplitterMoved(object? sender, SplitterEventArgs e)
     {
-        // Could persist code structure panel width here if needed
+        if (splitEditor.Panel2Collapsed)
+        {
+            return;
+        }
+
+        uiSettings.CodeStructurePanelWidth = GetCurrentCodeStructurePanelWidth();
+        PersistUiSettingsFromCurrentState();
+    }
+
+    private void ApplyOutputPanelHeight(int requestedHeight)
+    {
+        if (splitMain.Panel2Collapsed || splitMain.Height <= 0)
+        {
+            return;
+        }
+
+        var preferredOutputHeight = Math.Clamp(requestedHeight, OutputPanelMinHeight, OutputPanelMaxHeight);
+        var maxSplitterDistance = Math.Max(0, splitMain.Height - OutputPanelMinHeight);
+        var minSplitterDistance = Math.Min(EditorPanelMinHeight, maxSplitterDistance);
+        var desiredSplitterDistance = splitMain.Height - preferredOutputHeight;
+        splitMain.SplitterDistance = Math.Clamp(desiredSplitterDistance, minSplitterDistance, maxSplitterDistance);
+    }
+
+    private void ApplyCodeStructurePanelWidth(int requestedWidth)
+    {
+        if (splitEditor.Panel2Collapsed || splitEditor.Width <= 0)
+        {
+            return;
+        }
+
+        var maxAllowedWidth = Math.Max(
+            CodeStructurePanelMinWidth,
+            Math.Min(CodeStructurePanelMaxWidth, splitEditor.Width - splitEditor.Panel1MinSize));
+        var targetWidth = Math.Clamp(requestedWidth, CodeStructurePanelMinWidth, maxAllowedWidth);
+        var maxSplitterDistance = Math.Max(0, splitEditor.Width - CodeStructurePanelMinWidth);
+        if (maxSplitterDistance <= 0)
+        {
+            return;
+        }
+
+        var minSplitterDistance = Math.Min(splitEditor.Panel1MinSize, maxSplitterDistance);
+        var desiredSplitterDistance = splitEditor.Width - targetWidth;
+        splitEditor.SplitterDistance = Math.Clamp(desiredSplitterDistance, minSplitterDistance, maxSplitterDistance);
+    }
+
+    private int GetCurrentOutputPanelHeight()
+    {
+        var outputHeight = splitMain.Height - splitMain.SplitterDistance - splitMain.SplitterWidth;
+        return Math.Clamp(outputHeight, OutputPanelMinHeight, OutputPanelMaxHeight);
+    }
+
+    private int GetCurrentCodeStructurePanelWidth()
+    {
+        var panelWidth = splitEditor.Width - splitEditor.SplitterDistance - splitEditor.SplitterWidth;
+        return Math.Clamp(panelWidth, CodeStructurePanelMinWidth, CodeStructurePanelMaxWidth);
     }
 
     private void CodeStructureBrowser_ElementDoubleClicked(object? sender, CodeElementEventArgs e)

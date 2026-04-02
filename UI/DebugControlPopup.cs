@@ -55,6 +55,9 @@ internal sealed class DebugControlPopup : Form
         layout.Controls.Add(btnStepOut);
         layout.Controls.Add(btnStop);
         Controls.Add(layout);
+
+        var themeId = EditorConfigurationController.GetUiSettings().ThemeId;
+        EditorThemeController.ApplyFlatTheme(themeId, this);
     }
 
     internal void UpdateState(bool canContinue, bool canStepInto, bool canStepOver, bool canStepOut, bool canStop)

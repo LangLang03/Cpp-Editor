@@ -5,7 +5,7 @@ namespace C__Editor;
 
 internal static class EditorConfigurationController
 {
-    private const int CurrentVersion = 9;
+    private const int CurrentVersion = 10;
     private const string DefaultAutoPairFormat = "<>{}()";
     private static readonly object SyncRoot = new();
 
@@ -268,7 +268,9 @@ internal static class EditorConfigurationController
         {
             ShowProjectTree = ui.ShowProjectTree,
             ShowOutputPanel = ui.ShowOutputPanel,
-            ExplorerWidth = Math.Clamp(ui.ExplorerWidth, 180, 420),
+            ExplorerWidth = Math.Clamp(ui.ExplorerWidth, UiSettings.ExplorerWidthMin, UiSettings.ExplorerWidthMax),
+            OutputPanelHeight = Math.Clamp(ui.OutputPanelHeight, UiSettings.OutputPanelHeightMin, UiSettings.OutputPanelHeightMax),
+            CodeStructurePanelWidth = Math.Clamp(ui.CodeStructurePanelWidth, UiSettings.CodeStructurePanelWidthMin, UiSettings.CodeStructurePanelWidthMax),
             RestoreLastSessionOnStartup = ui.RestoreLastSessionOnStartup,
             ThemeId = EditorThemeController.NormalizeThemeId(ui.ThemeId)
         };
@@ -469,6 +471,8 @@ internal static class EditorConfigurationController
         return left.ShowProjectTree == right.ShowProjectTree &&
                left.ShowOutputPanel == right.ShowOutputPanel &&
                left.ExplorerWidth == right.ExplorerWidth &&
+               left.OutputPanelHeight == right.OutputPanelHeight &&
+               left.CodeStructurePanelWidth == right.CodeStructurePanelWidth &&
                left.RestoreLastSessionOnStartup == right.RestoreLastSessionOnStartup &&
                string.Equals(
                    EditorThemeController.NormalizeThemeId(left.ThemeId),
@@ -938,7 +942,7 @@ internal static class EditorConfigurationController
 
 internal sealed class EditorAppConfig
 {
-    public int ConfigVersion { get; set; } = 9;
+    public int ConfigVersion { get; set; } = 10;
 
     public UiSettings Ui { get; set; } = new();
 

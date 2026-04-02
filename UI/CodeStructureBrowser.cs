@@ -440,6 +440,9 @@ internal sealed class CodeStructureSettingsForm : Form
         AcceptButton = btnOk;
         CancelButton = btnCancel;
 
+        var themeId = EditorConfigurationController.GetUiSettings().ThemeId;
+        EditorThemeController.ApplyFlatTheme(themeId, this);
+
         ResultSettings = currentSettings.Clone();
         btnOk.Click += (_, _) => CommitSettings();
         FormClosing += (_, _) =>

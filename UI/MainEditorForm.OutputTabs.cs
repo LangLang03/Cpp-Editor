@@ -4,7 +4,7 @@ public partial class MainEditorForm
 {
     private TabControl CreateBottomTabs()
     {
-        var bottomTabs = new TabControl
+        var bottomTabs = new FlatTabControl
         {
             Dock = DockStyle.Fill,
             Name = "tabBottom",
@@ -117,9 +117,7 @@ public partial class MainEditorForm
         var tab = tabBottom.TabPages[e.Index];
         var bounds = e.Bounds;
         var selected = e.Index == tabBottom.SelectedIndex;
-        var selectedBackColor = tab.BackColor == Color.Empty ? tabBottom.BackColor : tab.BackColor;
-        var unselectedBackColor = BlendColor(tabBottom.BackColor, selectedBackColor, 0.55f);
-        var backColor = selected ? selectedBackColor : unselectedBackColor;
+        var backColor = tabBottom.BackColor;
         var borderColor = splitMain.BackColor;
 
         using (var backgroundBrush = new SolidBrush(backColor))
@@ -136,8 +134,17 @@ public partial class MainEditorForm
             tabBottom.ForeColor,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
 
-        using var borderPen = new Pen(borderColor);
-        e.Graphics.DrawRectangle(borderPen, bounds);
+        using var separatorPen = new Pen(borderColor);
+        if (e.Index < tabBottom.TabPages.Count - 1)
+        {
+            e.Graphics.DrawLine(separatorPen, bounds.Right - 1, bounds.Top + 4, bounds.Right - 1, bounds.Bottom - 4);
+        }
+
+        if (selected)
+        {
+            using var indicatorPen = new Pen(tabBottom.ForeColor, 2f);
+            e.Graphics.DrawLine(indicatorPen, bounds.Left + 6, bounds.Bottom - 2, bounds.Right - 7, bounds.Bottom - 2);
+        }
     }
 
     private static ContextMenuStrip CreateOutputContextMenu(RichTextBox targetTextBox)

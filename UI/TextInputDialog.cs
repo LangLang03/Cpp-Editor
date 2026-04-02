@@ -58,6 +58,9 @@ internal static class TextInputDialog
         dialog.AcceptButton = buttonOk;
         dialog.CancelButton = buttonCancel;
 
+        var themeId = EditorConfigurationController.GetUiSettings().ThemeId;
+        EditorThemeController.ApplyFlatTheme(themeId, dialog);
+
         var result = dialog.ShowDialog(owner);
         return result == DialogResult.OK ? textBox.Text : null;
     }

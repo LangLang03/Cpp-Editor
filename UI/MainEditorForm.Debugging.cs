@@ -465,6 +465,7 @@ public partial class MainEditorForm
         if (debugControlPopup is null || debugControlPopup.IsDisposed)
         {
             debugControlPopup = new DebugControlPopup();
+            EditorThemeController.ApplyFlatTheme(uiSettings.ThemeId, debugControlPopup);
             debugControlPopup.StepIntoRequested += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStepInto);
             debugControlPopup.StepOverRequested += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStepOver);
             debugControlPopup.StepOutRequested += (_, _) => ExecuteDebugCommand(EditorCommandIds.DebugStepOut);

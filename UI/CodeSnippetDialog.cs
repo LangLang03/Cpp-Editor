@@ -136,6 +136,9 @@ internal sealed class CodeSnippetDialog : Form
         };
 
         Load += (_, _) => LoadSnippets();
+
+        var themeId = EditorConfigurationController.GetUiSettings().ThemeId;
+        EditorThemeController.ApplyFlatTheme(themeId, this);
     }
 
     private void LoadSnippets()
