@@ -112,7 +112,7 @@ internal sealed class CppParser
 
             if (TryParseTemplateDeclaration(out var templatePrefix))
             {
-                pendingTemplatePrefix = templatePrefix;
+                pendingTemplatePrefix = AppendPrefix(pendingTemplatePrefix, templatePrefix);
                 continue;
             }
 
@@ -123,6 +123,12 @@ internal sealed class CppParser
             }
 
             if (classScope is null && TryParseNamespace(elements, scopeOwner, qualifiedPrefix, pendingTemplatePrefix))
+            {
+                pendingTemplatePrefix = string.Empty;
+                continue;
+            }
+
+            if (classScope is null && TryParseExternLinkageBlock(elements, scopeOwner, qualifiedPrefix))
             {
                 pendingTemplatePrefix = string.Empty;
                 continue;
@@ -213,6 +219,37 @@ internal sealed class CppParser
         }
 
         templatePrefix = FormatTokens(templateTokens);
+        return true;
+    }
+
+    private bool TryParseExternLinkageBlock(
+        List<CodeElement> elements,
+        CodeElement? scopeOwner,
+        string qualifiedPrefix)
+    {
+        if (!CheckKeyword("extern"))
+        {
+            return false;
+        }
+
+        if (position + 2 >= tokens.Count)
+        {
+            return false;
+        }
+
+        var linkageToken = tokens[position + 1];
+        var openBraceToken = tokens[position + 2];
+        if (linkageToken.Kind != CppTokenKind.StringLiteral || !openBraceToken.IsSymbol("{"))
+        {
+            return false;
+        }
+
+        _ = Consume(); // extern
+        _ = Consume(); // "C" / "C++"
+        _ = Consume(); // {
+
+        ParseScope(elements, scopeOwner, qualifiedPrefix, classScope: null, stopAtRightBrace: true);
+        _ = MatchSymbol(";");
         return true;
     }
 
@@ -404,18 +441,63 @@ internal sealed class CppParser
             ? Consume().Text
             : $"(anonymous {kindText})";
 
+        var classTemplateArgumentTokens = new List<CppToken>();
+        if (CheckSymbol("<"))
+        {
+            CollectBalancedAngleTokens(classTemplateArgumentTokens);
+        }
+
+        var classHeadSuffixTokens = new List<CppToken>();
+        while (!IsEnd && !CheckSymbol(":") && !CheckSymbol("{") && !CheckSymbol(";"))
+        {
+            classHeadSuffixTokens.Add(Consume());
+        }
+
         var inheritanceTokens = new List<CppToken>();
         if (MatchSymbol(":"))
         {
-            while (!IsEnd && !CheckSymbol("{") && !CheckSymbol(";"))
+            var parenDepth = 0;
+            var bracketDepth = 0;
+            var braceDepth = 0;
+            var angleDepth = 0;
+
+            while (!IsEnd)
             {
-                inheritanceTokens.Add(Consume());
+                if (parenDepth == 0 &&
+                    bracketDepth == 0 &&
+                    braceDepth == 0 &&
+                    angleDepth == 0 &&
+                    (CheckSymbol("{") || CheckSymbol(";")))
+                {
+                    break;
+                }
+
+                var token = Consume();
+                inheritanceTokens.Add(token);
+                UpdateDelimiterDepths(token, ref parenDepth, ref bracketDepth, ref braceDepth, ref angleDepth);
             }
         }
 
-        var signature = string.IsNullOrWhiteSpace(inheritanceTokens.Count == 0 ? string.Empty : FormatTokens(inheritanceTokens))
-            ? $"{kindText} {className}"
-            : $"{kindText} {className} : {FormatTokens(inheritanceTokens)}";
+        var classDisplayName = className;
+        if (classTemplateArgumentTokens.Count > 0)
+        {
+            classDisplayName += FormatTokens(classTemplateArgumentTokens);
+        }
+
+        var signatureBuilder = new StringBuilder($"{kindText} {classDisplayName}");
+        if (classHeadSuffixTokens.Count > 0)
+        {
+            signatureBuilder.Append(' ');
+            signatureBuilder.Append(FormatTokens(classHeadSuffixTokens));
+        }
+
+        if (inheritanceTokens.Count > 0)
+        {
+            signatureBuilder.Append(" : ");
+            signatureBuilder.Append(FormatTokens(inheritanceTokens));
+        }
+
+        var signature = signatureBuilder.ToString();
 
         if (!string.IsNullOrWhiteSpace(templatePrefix))
         {
@@ -433,7 +515,7 @@ internal sealed class CppParser
 
         AddElementToScope(elements, scopeOwner, classScope, classElement);
 
-        var classQualifiedName = CombineQualified(qualifiedPrefix, className);
+        var classQualifiedName = NormalizeQualifiedName(CombineQualified(qualifiedPrefix, className));
         if (!className.StartsWith("(anonymous", StringComparison.Ordinal))
         {
             classesByQualifiedName[classQualifiedName] = classElement;
@@ -537,10 +619,7 @@ internal sealed class CppParser
             Consume()
         };
 
-        while (!IsEnd && !CheckSymbol(";") && !CheckSymbol("}"))
-        {
-            usingTokens.Add(Consume());
-        }
+        CollectUntilStatementTerminator(usingTokens);
 
         _ = MatchSymbol(";");
 
@@ -580,10 +659,7 @@ internal sealed class CppParser
             Consume()
         };
 
-        while (!IsEnd && !CheckSymbol(";") && !CheckSymbol("}"))
-        {
-            typedefTokens.Add(Consume());
-        }
+        CollectUntilStatementTerminator(typedefTokens);
 
         _ = MatchSymbol(";");
 
@@ -762,7 +838,7 @@ internal sealed class CppParser
         }
         else if (qualifiers.Count > 0)
         {
-            qualifiedClassName = string.Join("::", qualifiers);
+            qualifiedClassName = NormalizeQualifiedName(string.Join("::", qualifiers));
             if (!string.IsNullOrWhiteSpace(qualifiedClassName) && classesByQualifiedName.TryGetValue(qualifiedClassName, out var classElement))
             {
                 if (isDestructor)
@@ -941,30 +1017,218 @@ internal sealed class CppParser
         nameToken = declarationTokens[index];
         nameText = nameToken.Text;
 
+        var qualifierIndex = index - 1;
         if (index > 0 && declarationTokens[index - 1].IsSymbol("~"))
         {
             isDestructor = true;
             namePosition = (declarationTokens[index - 1].Line, declarationTokens[index - 1].Column);
-            index -= 2;
+            qualifierIndex = index - 2;
         }
         else
         {
             namePosition = (nameToken.Line, nameToken.Column);
-            index--;
         }
 
-        while (index >= 1)
+        while (qualifierIndex >= 0)
         {
-            if (!declarationTokens[index].IsSymbol("::") || declarationTokens[index - 1].Kind != CppTokenKind.Identifier)
+            if (!declarationTokens[qualifierIndex].IsSymbol("::"))
             {
                 break;
             }
 
-            qualifiers.Insert(0, declarationTokens[index - 1].Text);
-            index -= 2;
+            qualifierIndex--;
+            if (qualifierIndex < 0)
+            {
+                break;
+            }
+
+            if (!TryReadQualifierComponentBackward(declarationTokens, ref qualifierIndex, out var qualifierName))
+            {
+                break;
+            }
+
+            if (!string.IsNullOrWhiteSpace(qualifierName))
+            {
+                qualifiers.Insert(0, qualifierName);
+            }
         }
 
         return true;
+    }
+
+    private static bool TryReadQualifierComponentBackward(
+        IReadOnlyList<CppToken> declarationTokens,
+        ref int index,
+        out string qualifierName)
+    {
+        qualifierName = string.Empty;
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var cursor = index;
+        if (declarationTokens[cursor].IsSymbol(">") || declarationTokens[cursor].IsSymbol(">>"))
+        {
+            var angleDepth = 0;
+            while (cursor >= 0)
+            {
+                var token = declarationTokens[cursor];
+                if (token.IsSymbol(">"))
+                {
+                    angleDepth++;
+                }
+                else if (token.IsSymbol(">>"))
+                {
+                    angleDepth += 2;
+                }
+                else if (token.IsSymbol("<"))
+                {
+                    angleDepth--;
+                    if (angleDepth <= 0)
+                    {
+                        cursor--;
+                        break;
+                    }
+                }
+
+                cursor--;
+            }
+        }
+
+        if (cursor < 0 || declarationTokens[cursor].Kind != CppTokenKind.Identifier)
+        {
+            return false;
+        }
+
+        qualifierName = declarationTokens[cursor].Text;
+        cursor--;
+
+        if (cursor >= 0 && declarationTokens[cursor].IsKeyword("template"))
+        {
+            cursor--;
+        }
+
+        index = cursor;
+        return true;
+    }
+
+    private void CollectBalancedAngleTokens(List<CppToken> collectedTokens)
+    {
+        if (!CheckSymbol("<"))
+        {
+            return;
+        }
+
+        var angleDepth = 0;
+        while (!IsEnd)
+        {
+            var token = Consume();
+            collectedTokens.Add(token);
+
+            if (token.IsSymbol("<"))
+            {
+                angleDepth++;
+            }
+            else if (token.IsSymbol(">"))
+            {
+                angleDepth--;
+            }
+            else if (token.IsSymbol(">>"))
+            {
+                angleDepth -= 2;
+            }
+
+            if (angleDepth <= 0)
+            {
+                break;
+            }
+        }
+    }
+
+    private void CollectUntilStatementTerminator(List<CppToken> collectedTokens)
+    {
+        var parenDepth = 0;
+        var bracketDepth = 0;
+        var braceDepth = 0;
+        var angleDepth = 0;
+
+        while (!IsEnd)
+        {
+            if (parenDepth == 0 &&
+                bracketDepth == 0 &&
+                braceDepth == 0 &&
+                angleDepth == 0 &&
+                (CheckSymbol(";") || CheckSymbol("}")))
+            {
+                break;
+            }
+
+            var token = Consume();
+            collectedTokens.Add(token);
+            UpdateDelimiterDepths(token, ref parenDepth, ref bracketDepth, ref braceDepth, ref angleDepth);
+        }
+    }
+
+    private static void UpdateDelimiterDepths(
+        CppToken token,
+        ref int parenDepth,
+        ref int bracketDepth,
+        ref int braceDepth,
+        ref int angleDepth)
+    {
+        if (token.IsSymbol("("))
+        {
+            parenDepth++;
+            return;
+        }
+
+        if (token.IsSymbol(")") && parenDepth > 0)
+        {
+            parenDepth--;
+            return;
+        }
+
+        if (token.IsSymbol("["))
+        {
+            bracketDepth++;
+            return;
+        }
+
+        if (token.IsSymbol("]") && bracketDepth > 0)
+        {
+            bracketDepth--;
+            return;
+        }
+
+        if (token.IsSymbol("{"))
+        {
+            braceDepth++;
+            return;
+        }
+
+        if (token.IsSymbol("}") && braceDepth > 0)
+        {
+            braceDepth--;
+            return;
+        }
+
+        if (token.IsSymbol("<"))
+        {
+            angleDepth++;
+            return;
+        }
+
+        if (token.IsSymbol(">") && angleDepth > 0)
+        {
+            angleDepth--;
+            return;
+        }
+
+        if (token.IsSymbol(">>") && angleDepth > 0)
+        {
+            angleDepth = Math.Max(0, angleDepth - 2);
+        }
     }
 
     private void AddOutOfClassMember(CodeElement classElement, CodeElement member)
@@ -1282,6 +1546,69 @@ internal sealed class CppParser
         }
 
         return $"{prefix}::{name}";
+    }
+
+    private static string NormalizeQualifiedName(string qualifiedName)
+    {
+        if (string.IsNullOrWhiteSpace(qualifiedName))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder();
+        var angleDepth = 0;
+        for (var i = 0; i < qualifiedName.Length; i++)
+        {
+            var ch = qualifiedName[i];
+            if (ch == '<')
+            {
+                angleDepth++;
+                continue;
+            }
+
+            if (ch == '>')
+            {
+                if (angleDepth > 0)
+                {
+                    angleDepth--;
+                }
+
+                continue;
+            }
+
+            if (angleDepth > 0)
+            {
+                continue;
+            }
+
+            if (!char.IsWhiteSpace(ch))
+            {
+                builder.Append(ch);
+            }
+        }
+
+        var normalized = builder.ToString();
+        while (normalized.StartsWith("::", StringComparison.Ordinal))
+        {
+            normalized = normalized[2..];
+        }
+
+        return normalized;
+    }
+
+    private static string AppendPrefix(string prefix, string nextPrefix)
+    {
+        if (string.IsNullOrWhiteSpace(prefix))
+        {
+            return nextPrefix;
+        }
+
+        if (string.IsNullOrWhiteSpace(nextPrefix))
+        {
+            return prefix;
+        }
+
+        return $"{prefix} {nextPrefix}";
     }
 
     private static string FormatTokens(IReadOnlyList<CppToken> tokens)

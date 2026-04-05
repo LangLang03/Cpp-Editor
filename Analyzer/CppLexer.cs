@@ -225,6 +225,19 @@ internal sealed class CppLexer
             var ch = Peek();
             if (ch == '\r' || ch == '\n')
             {
+                if (EndsWithLineContinuation(valueBuilder))
+                {
+                    TrimLineContinuation(valueBuilder);
+                    Advance();
+                    SkipHorizontalWhitespace();
+                    if (valueBuilder.Length > 0 && valueBuilder[^1] != ' ')
+                    {
+                        valueBuilder.Append(' ');
+                    }
+
+                    continue;
+                }
+
                 break;
             }
 
@@ -347,6 +360,45 @@ internal sealed class CppLexer
 
             break;
         }
+    }
+
+    private static bool EndsWithLineContinuation(StringBuilder builder)
+    {
+        for (var i = builder.Length - 1; i >= 0; i--)
+        {
+            var ch = builder[i];
+            if (ch == ' ' || ch == '\t' || ch == '\f' || ch == '\v')
+            {
+                continue;
+            }
+
+            return ch == '\\';
+        }
+
+        return false;
+    }
+
+    private static void TrimLineContinuation(StringBuilder builder)
+    {
+        var index = builder.Length - 1;
+        while (index >= 0)
+        {
+            var ch = builder[index];
+            if (ch == ' ' || ch == '\t' || ch == '\f' || ch == '\v')
+            {
+                index--;
+                continue;
+            }
+
+            if (ch == '\\')
+            {
+                index--;
+            }
+
+            break;
+        }
+
+        builder.Length = Math.Max(0, index + 1);
     }
 
     private bool Matches(string text)
